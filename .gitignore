@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# 环境/密钥
+.env
+*.log
+
+# 数据库（太大，不推送）
+*.sqlite3
+stock_data/
+
+# 生成报告（每次生成，无需版本控制）
+reports/
+
+# WorkBuddy
+.workbuddy/
+
+# Windows 保留文件名
+nul
+
+# 操作系统
+Thumbs.db
+.DS_Store

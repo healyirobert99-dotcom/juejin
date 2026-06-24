@@ -1,0 +1,28 @@
+{
+  "stop_loss": {
+    "mechanical": -0.08,
+    "min_return_5d": -0.03,
+    "min_return_10d": -0.05
+  },
+  "take_profit": {
+    "tier1": {"pct": 0.20, "action": "REDUCE_1_3"},
+    "tier2": {"pct": 0.40, "action": "REDUCE_1_2"}
+  },
+  "position": {
+    "first_trigger": 0.08,
+    "repeat_trigger": 0.12,
+    "small_industry_threshold": 20,
+    "max_total": 0.30
+  },
+  "cooldown": {
+    "industry_cooldown_days": 60,
+    "repeat_priority_days": 120
+  },
+  "signal": {
+    "breadth_threshold": 0.35,
+    "vol_ratio_threshold": 1.0,
+    "min_stocks_per_industry": 5,
+    "lookback_days": 60,
+    "lookback_low_threshold": 0.5
+  }
+}

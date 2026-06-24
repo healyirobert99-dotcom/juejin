@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zhuxian-catch-v0_6"
+version = "0.6.0"
+description = "A 股主线识别 v0.6 — 重做版本"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pytest>=7.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["v0_6"]
+
+[tool.pytest.ini_options]
+testpaths = ["v0_6/tests"]
+python_files = ["test_*.py"]
