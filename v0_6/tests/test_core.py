@@ -36,13 +36,13 @@ def test_mark_repeat_priority():
     assert result[result["industry"] == "汽车"].iloc[0]["priority"] == "FIRST"
 
 
-def test_init_schema():
+def test_init_schema(isolated_trade_db):
     from v0_6.core import init_schema
     init_schema()
     assert True
 
 
-def test_live_trade_store_crud():
+def test_live_trade_store_crud(isolated_trade_db):
     from v0_6.core import add_trade, list_open_positions, close_trade, get_position_net
 
     trade_id = add_trade(
