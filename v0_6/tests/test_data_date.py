@@ -25,11 +25,16 @@ import pytest
 
 
 def _patch_stock_db(monkeypatch, db_path):
-    """同时 patch config.STOCK_DATA_DB 和 monitor_v6 模块级的引用来确保生效"""
+    """同时 patch config.STOCK_DATA_DB 和所有引用 STOCK_DATA_DB 的模块级变量"""
     from v0_6.core import config as cfg
     from v0_6.core import monitor_v6
     monkeypatch.setattr(cfg, "STOCK_DATA_DB", db_path)
     monkeypatch.setattr(monitor_v6, "STOCK_DATA_DB", db_path)
+    try:
+        from v0_6.scripts import trade_form_server as tfs
+        monkeypatch.setattr(tfs, "STOCK_DATA_DB", db_path)
+    except ImportError:
+        pass
 
 
 # ── Fixtures ──
@@ -163,3 +168,92 @@ def test_target_type_routing(monkeypatch, db_with_data):
     assert not get_target_price("000001.SZ", "STOCK", "2026-06-27").empty
     assert get_target_price("测试行业", "INDUSTRY", "2026-06-27").empty
     assert get_target_price("xxx", "UNKNOWN", "2026-06-27").empty
+
+
+# ── 测试 9：render_html 双日期 + 信号出现 ──
+
+def test_render_html_weekend_shows_signal_and_data_date(monkeypatch, db_with_data):
+    """周六生成日报，信号使用周五数据，HTML 包含双日期"""
+    from v0_6.core import config as cfg
+    from v0_6.scripts.run_daily_v1_html import render_html, get_signal_data_date, get_today_signals
+    import pandas as pd
+    _patch_stock_db(monkeypatch, db_with_data)
+
+    requested_date = "2026-06-27"  # 周六
+    signal_data_date = get_signal_data_date(requested_date)
+    assert signal_data_date == "2026-06-26"
+
+    # 构造信号：模拟一个 2026-06-26 的证券行业信号
+    signals = pd.DataFrame([{
+        "signal_date": pd.Timestamp("2026-06-26"),
+        "industry": "证券",
+        "priority": "FIRST",
+        "breadth_at_signal": 0.45,
+        "vol_ratio_at_signal": 1.2,
+        "avg_chg_20d": 0.03,
+    }])
+
+    html = render_html(requested_date, signal_data_date, signals, [])
+    # HTML 应包含生成日期（6-27）
+    assert "2026-06-27" in html, "HTML 应含生成日期"
+    # HTML 应包含信号数据日期（6-26）
+    assert signal_data_date in html, f"HTML 应含信号数据日期 {signal_data_date}"
+    # HTML 应含证券信号（周五的数据）
+    assert "证券" in html, "HTML 应含周五的信号行业"
+    # HTML 应含 data-note（日期不一致时）
+    assert "数据截至" in html, "日期不一致时应显示数据截至提示"
+
+
+# ── 测试 10：auto_calc_rules target_type 路由 ──
+
+def test_auto_calc_rules_routing(monkeypatch, db_with_data):
+    """auto_calc_rules 按 target_type 路由到不同表"""
+    from v0_6.scripts.trade_form_server import auto_calc_rules
+    _patch_stock_db(monkeypatch, db_with_data)
+
+    # ETF -> etf_daily
+    etf_rules = auto_calc_rules("512800", "ETF", "2026-06-26")
+    assert etf_rules, "ETF 应返回规则"
+    assert "latest_price" in etf_rules
+
+    # STOCK -> daily_hfq
+    stock_rules = auto_calc_rules("000001.SZ", "STOCK", "2026-06-26")
+    assert stock_rules, "STOCK 应返回规则"
+    assert "latest_price" in stock_rules
+
+    # INDUSTRY -> 空
+    ind_rules = auto_calc_rules("xxx", "INDUSTRY", "2026-06-26")
+    assert ind_rules == {}, "INDUSTRY 应返回空"
+
+
+# ── 测试 11：1-4 条历史行情时返回价格但不生成进度桶 ──
+
+@pytest.fixture
+def db_sparse(tmp_path):
+    """只有 3 条 ETF 历史行情"""
+    db_path = tmp_path / "stock_data.db"
+    con = sqlite3.connect(str(db_path))
+    con.execute("CREATE TABLE daily_hfq (ts_code TEXT, trade_date TEXT, close REAL)")
+    con.execute("CREATE TABLE etf_daily (ts_code TEXT, trade_date TEXT, close REAL)")
+    for code in ["512800.SH"]:
+        for d in [20260620, 20260621, 20260622]:
+            con.execute("INSERT INTO etf_daily VALUES (?, ?, ?)",
+                        (code, str(d), 0.8))
+    con.commit()
+    con.close()
+    return db_path
+
+
+def test_auto_calc_rules_sparse_data_returns_price_no_progress(monkeypatch, db_sparse):
+    """1-4 条历史行情时返回 latest_price 和 as_of，但不生成进度桶"""
+    from v0_6.scripts.trade_form_server import auto_calc_rules
+    _patch_stock_db(monkeypatch, db_sparse)
+
+    rules = auto_calc_rules("512800", "ETF", "2026-06-22")
+    assert rules, "应返回规则"
+    assert "latest_price" in rules, "应返回最新价"
+    assert "as_of" in rules, "应返回价格日期"
+    assert rules["as_of"] <= "20260622", "as_of 不应晚于录入日期"
+    assert "progress" not in rules, "数据不足时不应生成进度"
+    assert "bucket" not in rules, "数据不足时不应生成桶"
+

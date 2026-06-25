@@ -113,11 +113,18 @@ def auto_calc_rules(target: str, target_type: str, trade_date: str) -> dict:
             break
     con.close()
 
-    if not rows or len(rows) < 5:
+    if not rows:
         return {}
 
+    current_price = rows[0][1]
+    as_of = rows[0][0]
+
+    # 数据不足5条时返回日期受限的最新价和价格日期，不计算进度桶
+    if len(rows) < 5:
+        return {"latest_price": current_price, "as_of": as_of}
+
     closes = [r[1] for r in rows]
-    current_price = closes[0]
+    # current_price 已在上方赋值
     low_60d = min(closes)
     progress = (current_price - low_60d) / low_60d if low_60d > 0 else 0
     bucket = get_bucket(progress)
