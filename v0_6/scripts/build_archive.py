@@ -119,7 +119,7 @@ def render_archive(entries: list[dict]) -> str:
           <span class="day-wd">周{weekday_cn}</span>
         </div>
         <div class="entry-body">
-          <div class="entry-title">掘金日报 · {e['date']}</div>
+          <div class="entry-title">掘金日报 · {e['date']}{' <span class="empty-badge">空</span>' if e['n_signal'] == 0 and not e['has_alert'] else ''}</div>
           <div class="entry-cells">{cells_html}</div>
         </div>
         <div class="entry-arrow">→</div>
@@ -473,6 +473,17 @@ body {{
 .cell.red b {{ color: var(--ink-on-dark); font-weight: 900; }}
 .cell.pos {{ background: var(--paper-2); color: var(--ink-2); }}
 .cell.quiet {{ background: transparent; color: var(--ink-3); font-style: italic; }}
+.empty-badge {{
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--ink-3);
+  color: var(--ink-on-dark);
+  letter-spacing: 0.1em;
+  vertical-align: middle;
+  margin-left: 6px;
+}}
 
 .entry-arrow {{
   font-family: var(--font-display);

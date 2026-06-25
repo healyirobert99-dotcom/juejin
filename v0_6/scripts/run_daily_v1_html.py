@@ -728,12 +728,15 @@ def render_html(today: str, today_signals: pd.DataFrame, monitoring: list) -> st
     # 解析日期为刊头需要的形式
     y, m, d = today.split("-")
 
+    # 空报告标记
+    empty_mark = " · 空" if n_today == 0 else ""
+
     html = [f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>掘金日报 · {today} | Zhuxian Catch v0.6</title>
+<title>掘金日报 · {today}{empty_mark} | Zhuxian Catch v0.6</title>
 {HTML_STYLE}
 </head>
 <body>
@@ -753,7 +756,7 @@ def render_html(today: str, today_signals: pd.DataFrame, monitoring: list) -> st
     <div class="dl-date">{int(m)}<span style="color:var(--rule)">·</span>{int(d)}<div class="yr">A.D. {y}</div></div>
     <div>
       <div class="dl-title">掘金<br>信号日报</div>
-      <div class="dl-subtitle">基于 4 因子宽度回看的板块信号 · 配 4 进度桶<br>止盈止损分桶规则 · 第 VI 期</div>
+      <div class="dl-subtitle">基于 4 因子宽度回看的板块信号 · 配 4 进度桶<br>止盈止损分桶规则 · 第 VI 期{empty_mark}</div>
     </div>
   </div>
 """]
