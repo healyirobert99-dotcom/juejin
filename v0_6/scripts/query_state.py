@@ -31,7 +31,7 @@ def main():
         print("暂无未平仓持仓。")
         return
 
-    print(f"{'标的':<8} {'入场日':<12} {'桶':<6} {'止损价':<10} {'止盈价':<10} {'现价':<10} {'浮盈':<8} {'价格日期':<12} {'操作':<10} {'告警'}")
+    print(f"{'标的':<8} {'入场日':<12} {'桶':<6} {'止损阈值':<10} {'止损价':<10} {'止盈价':<10} {'现价':<10} {'浮盈':<8} {'距止损':<8} {'距止盈':<8} {'价格日期':<12} {'操作':<10} {'告警'}")
     print("-" * 120)
     for r in results:
         if "error" in r:
@@ -50,10 +50,13 @@ def main():
             f"{r.get('target', '?'):<8} "
             f"{r['entry_date']:<12} "
             f"{r['progress_bucket_at_entry']:<6} "
+            f"{(r.get('stop_threshold', 0)*-1):.0%}止{'':<2} "
             f"¥{r['stop_price']:<9.4f} "
             f"¥{r['take_profit_price']:<9.4f} "
             f"¥{r['current_price']:<9.4f} "
             f"{r['return_pct']*100:>+6.1f}% "
+            f"{r['distance_to_stop']*100:>6.1f}% "
+            f"{r['distance_to_tp']*100:>6.1f}% "
             f"{price_date:<12} "
             f"{action_emoji} {r['action']:<8} "
             f"{alerts_str}"
