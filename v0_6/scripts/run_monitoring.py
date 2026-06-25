@@ -29,7 +29,7 @@ def render_monitoring_v6(today: str, results: list) -> str:
     md.append("|------|--------|-----|------|--------|--------|------|------|--------|--------|------|------|")
     for r in results:
         if "error" in r:
-            md.append(f"| {r['industry']} | - | - | - | - | - | - | - | - | - | - | 无价格数据 |")
+            md.append(f"| {r.get('target', '?')} | - | - | - | - | - | - | - | - | - | - | 无价格数据 |")
             continue
         action_emoji = {
             "HOLD": "🟢", "WATCH": "🟡", "CLEAR": "🔴",
@@ -37,7 +37,7 @@ def render_monitoring_v6(today: str, results: list) -> str:
         }.get(r["action"], "⚪")
         alerts_str = "; ".join([a["type"] for a in r.get("alerts", [])]) or "—"
         md.append(
-            f"| {r['industry']} | {r['entry_date']} | {r['progress_bucket_at_entry']} | "
+            f"| {r.get('target', '?')} | {r['entry_date']} | {r['progress_bucket_at_entry']} | "
             f"{r['stop_threshold']*-100:.0f}% | ¥{r['stop_price']:.4f} | ¥{r['take_profit_price']:.4f} | "
             f"¥{r['current_price']:.4f} | {r['return_pct']*100:+.1f}% | "
             f"{r['distance_to_stop']*100:+.1f}% | {r['distance_to_tp']*100:+.1f}% | "
@@ -53,7 +53,7 @@ def render_monitoring_v6(today: str, results: list) -> str:
         md.append(f"## 🔴 红色告警（{len(red)} 笔）")
         md.append("")
         for r in red:
-            md.append(f"### {r['industry']}（{r['return_pct']*100:+.1f}%）")
+            md.append(f"### {r.get('target', '?')}（{r['return_pct']*100:+.1f}%）")
             for a in r["alerts"]:
                 md.append(f"- **{a['type']}**：{a['message']}（动作：{a['action']}）")
             md.append("")
@@ -61,7 +61,7 @@ def render_monitoring_v6(today: str, results: list) -> str:
         md.append(f"## 🟡 黄色告警（{len(yellow)} 笔）")
         md.append("")
         for r in yellow:
-            md.append(f"### {r['industry']}（{r['return_pct']*100:+.1f}%）")
+            md.append(f"### {r.get('target', '?')}（{r['return_pct']*100:+.1f}%）")
             for a in r["alerts"]:
                 md.append(f"- **{a['type']}**：{a['message']}（动作：{a['action']}）")
             md.append("")

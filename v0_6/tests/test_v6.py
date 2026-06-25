@@ -65,6 +65,7 @@ def test_v6_workflow():
     con.close()
 
     trade_id = add_trade(
+        target="512480", target_type="ETF", target_name="国联安中证全指半导体ETF",
         industry="半导体", action="BUY", price=100.0, shares=1000,
         trade_date="2025-06-15", signal_type="GOLD", position_pct=0.08,
         progress=0.05, notes="v6 test",
@@ -84,9 +85,9 @@ def test_v6_monitor():
     print(f"  OK monitoring {len(results)} positions")
     for r in results:
         if "error" in r:
-            print(f"  ! {r['industry']}: {r['error']}")
+            print(f"  ! {r.get('target', '?')}: {r['error']}")
             continue
-        print(f"  - {r['industry']} ({r['progress_bucket_at_entry']}): ret={r['return_pct']*100:+.1f}%, action={r['action']}, alerts={len(r['alerts'])}")
+        print(f"  - {r.get('target', '?')} ({r['progress_bucket_at_entry']}): ret={r['return_pct']*100:+.1f}%, action={r['action']}, alerts={len(r['alerts'])}")
         for a in r["alerts"]:
             print(f"      [{a['priority']}] {a['type']}: {a['message']}")
 

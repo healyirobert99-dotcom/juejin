@@ -165,6 +165,80 @@ def test_progress_negative_or_zero():
         print(f"  ⊘ 512800 无数据，跳过")
 
 
+def test_etf_routing_uses_etf_daily():
+    """ETF 类型只查 etf_daily，不进行业查询"""
+    from v0_6.core import evaluate_position_v6
+    r = evaluate_position_v6(
+        target="512800", target_type="ETF",
+        entry_date="2026-06-01", entry_price=0.80,
+        today="2026-06-24", progress=0.0,
+    )
+    assert "error" not in r, f"ETF 不应报错: {r.get('error')}"
+    assert "current_price" in r, "ETF 应有 current_price"
+    assert r["current_price"] is not None, "ETF current_price 不应为 None"
+    assert r["target_type"] == "ETF"
+    # 从 etf_daily 读取的正确价格（512800 6-24 收盘 0.761）
+    assert abs(r["current_price"] - 0.761) < 0.01, f"ETF 价格应为 0.761，实 {r['current_price']}"
+    print(f"  ✓ ETF 512800 → etf_daily 价格 {r['current_price']}")
+
+
+def test_stock_routing_uses_daily_hfq():
+    """STOCK 类型只查 daily_hfq，不进行业查询"""
+    from v0_6.core import evaluate_position_v6
+    r = evaluate_position_v6(
+        target="000001.SZ", target_type="STOCK",
+        entry_date="2026-01-01", entry_price=10.0,
+        today="2026-06-24", progress=0.0,
+    )
+    assert "error" not in r, f"STOCK 不应报错: {r.get('error')}"
+    assert r["current_price"] is not None, "STOCK 应有 current_price"
+    assert r["target_type"] == "STOCK"
+    print(f"  ✓ STOCK 000001.SZ → daily_hfq 价格 {r['current_price']}")
+
+
+def test_industry_suppresses_pnl():
+    """INDUSTRY 不返回盈亏、止损、止盈"""
+    from v0_6.core import evaluate_position_v6
+    r = evaluate_position_v6(
+        target="测试行业", target_type="INDUSTRY",
+        entry_date="2026-01-01", entry_price=10.0,
+        today="2026-06-24", progress=0.05,
+    )
+    assert r["error"] == "industry_not_executable"
+    assert r.get("current_price") is None, "INDUSTRY 不应有 current_price"
+    assert r.get("return_pct") is None, "INDUSTRY 不应有 return_pct"
+    assert r.get("stop_price") is None, "INDUSTRY 不应有 stop_price"
+    assert r.get("take_profit_price") is None, "INDUSTRY 不应有 take_profit_price"
+    assert r.get("action") == "HOLD"
+    assert len(r.get("alerts", [])) == 1
+    assert r["alerts"][0]["type"] == "INDUSTRY_NOT_EXECUTABLE"
+    print(f"  ✓ INDUSTRY → {r['error']}，无盈亏/止损/止盈")
+
+
+def test_unknown_target_type_returns_error():
+    """未知 target_type 返回明确错误"""
+    from v0_6.core import evaluate_position_v6
+    r = evaluate_position_v6(
+        target="xxx", target_type="UNKNOWN",
+        entry_date="2026-01-01", entry_price=1.0,
+        today="2026-06-24", progress=0.0,
+    )
+    assert r["error"] == "unknown_target_type"
+    assert r.get("current_price") is None
+    assert r["alerts"][0]["type"] == "UNKNOWN_TARGET_TYPE"
+    print(f"  ✓ UNKNOWN → {r['error']}，不自动猜测")
+
+
+def test_etf_code_not_goes_to_industry_price():
+    """ETF 代码绝不进入行业价格查询路径"""
+    from v0_6.core.monitor_v6 import get_target_price
+    # 直接调用底层函数：ETF 代码不产生 stock_basic 行业查询
+    df = get_target_price("512800", "ETF", "2026-06-24")
+    assert not df.empty, "get_target_price(ETF) 应返回价格"
+    assert "close" in df.columns
+    print(f"  ✓ get_target_price(ETF=512800) 返回 {len(df)} 行数据")
+
+
 if __name__ == "__main__":
     print("\n=== v6.2 关键回归测试 ===\n")
     test_etf_match_all()

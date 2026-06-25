@@ -699,7 +699,7 @@ def render_position_card(r: dict) -> str:
     return f"""
 <article class="ledger {action}">
   <div class="led-left">
-    <div class="led-name">{r['industry']}</div>
+    <div class="led-name">{r.get('name') or r.get('target_name') or r.get('target', '?')}</div>
     <span class="led-action-tag {action}">{action}</span>
     <div class="led-bucket"><b>{bucket}</b>{bucket_indicator}</div>
   </div>

@@ -116,7 +116,7 @@ def render_daily_v1(today: str, today_signals: pd.DataFrame, monitoring: list, a
                 "ADJUST": "🟡",
             }.get(r["action"], "⚪")
             md.append(
-                f"| {r['industry']} | {r['entry_date']} | {r['progress_bucket_at_entry']} | "
+                f"| {r.get('target', '?')} | {r['entry_date']} | {r['progress_bucket_at_entry']} | "
                 f"{r['stop_threshold']*-100:.0f}%止 | ¥{r['stop_price']:.4f} | ¥{r['take_profit_price']:.4f} | "
                 f"¥{r['current_price']:.4f} | {r['return_pct']*100:+.1f}% | "
                 f"{r['distance_to_stop']*100:+.1f}% | {r['distance_to_tp']*100:+.1f}% | "
@@ -148,7 +148,7 @@ def render_daily_v1(today: str, today_signals: pd.DataFrame, monitoring: list, a
     else:
         for r in triggered:
             emoji = "🔴" if r.get("priority") == "RED" else "🟡"
-            md.append(f"### {emoji} {r['industry']}（{r['return_pct']*100:+.1f}%）")
+            md.append(f"### {emoji} {r.get('target', '?')}（{r['return_pct']*100:+.1f}%）")
             for a in r["alerts"]:
                 md.append(f"- **{a['type']}**：{a['message']}（建议动作：{a['action']}）")
             md.append("")
@@ -204,14 +204,14 @@ def render_monitoring(today: str, monitoring: list) -> str:
         m5 = f"{r['min_return_5d']*100:.1f}%" if r["min_return_5d"] is not None else "-"
         m10 = f"{r['min_return_10d']*100:.1f}%" if r["min_return_10d"] is not None else "-"
         md.append(
-            f"| {r['industry']} | {r['entry_date']} | {r['current_price']:.4f} | {ret} | {m5} | {m10} | {r['days_held']}d |"
+            f"| {r.get('target', '?')} | {r['entry_date']} | {r['current_price']:.4f} | {ret} | {m5} | {m10} | {r['days_held']}d |"
         )
     md.append("")
     triggered = [r for r in monitoring if r["alerts"]]
     if triggered:
         md.append(f"## ⚠️ 告警（{len(triggered)} 条）\n")
         for r in triggered:
-            md.append(f"### {r['industry']}")
+            md.append(f"### {r.get('target', '?')}")
             for a in r["alerts"]:
                 md.append(f"- {a['message']}")
             md.append("")

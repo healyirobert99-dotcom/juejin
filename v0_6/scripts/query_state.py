@@ -34,7 +34,7 @@ def main():
     print("-" * 120)
     for r in results:
         if "error" in r:
-            print(f"{r['industry']:<8} - 无价格数据")
+            print(f"{r.get('target', '?'):<8} - 无价格数据")
             continue
         action_emoji = {
             "HOLD": "🟢",
@@ -45,7 +45,7 @@ def main():
         }.get(r["action"], "⚪")
         alerts_str = "; ".join([a["message"] for a in r.get("alerts", [])])
         print(
-            f"{r['industry']:<8} "
+            f"{r.get('target', '?'):<8} "
             f"{r['entry_date']:<12} "
             f"{r['progress_bucket_at_entry']:<6} "
             f"{(r.get('stop_threshold', 0)*-1):.0%}止{'':<2} "
@@ -69,12 +69,12 @@ def main():
         print(f"\n🔴 红色告警（{len(red_alerts)} 笔）:")
         for r in red_alerts:
             for a in r["alerts"]:
-                print(f"  - {r['industry']} | {a['type']} | {a['message']} | 操作: {a['action']}")
+                print(f"  - {r.get('target', '?')} | {a['type']} | {a['message']} | 操作: {a['action']}")
     if yellow_alerts:
         print(f"\n🟡 黄色告警（{len(yellow_alerts)} 笔）:")
         for r in yellow_alerts:
             for a in r["alerts"]:
-                print(f"  - {r['industry']} | {a['type']} | {a['message']} | 操作: {a['action']}")
+                print(f"  - {r.get('target', '?')} | {a['type']} | {a['message']} | 操作: {a['action']}")
     if not red_alerts and not yellow_alerts:
         print("\n✅ 全部持仓状态正常。")
     print()
