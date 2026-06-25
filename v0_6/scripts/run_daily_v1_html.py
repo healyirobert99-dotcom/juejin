@@ -992,17 +992,131 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
     return "\n".join(html)
 
 
+def render_blocked_report(requested_date: str, signal_data_date: str, validation: dict,
+                           today_signals: pd.DataFrame, monitoring: list) -> str:
+    """数据不合格时生成阻断报告（不含可执行买卖建议）"""
+    n_today = len(today_signals)
+    n_positions = len(monitoring)
+    y, m, d = requested_date.split("-")
+
+    errors_html = "".join(f'<li>{e}</li>' for e in validation.get("errors", []))
+    warnings_html = "".join(f'<li>{w}</li>' for w in validation.get("warnings", []))
+
+    html = [f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⚠ 数据阻断 · {requested_date} | Zhuxian Catch v0.6</title>
+{HTML_STYLE}
+</head>
+<body>
+<div class="sheet">
+  <header class="masthead">
+    <span class="vol">Vol. I · No. {int(d)}</span>
+    <span class="issue">数据阻断 · DATA BLOCKED</span>
+    <span>Edition of {requested_date}</span>
+  </header>
+
+  <div class="dateline">
+    <div class="dl-date">{int(m)}<span style="color:var(--rule)">·</span>{int(d)}<div class="yr">A.D. {y}</div></div>
+    <div>
+      <div class="dl-title">数据<br>阻断报告</div>
+      <div class="dl-subtitle">行情数据未就绪 · 本报告不提供任何买卖建议</div>
+    </div>
+  </div>
+
+  <div class="alert-banner" style="background:var(--accent);border-color:var(--accent);">
+    <div class="alert-icon" style="color:var(--ink-on-dark);">!</div>
+    <div class="alert-text" style="color:var(--ink-on-dark);">
+      <b>行情数据未就绪</b>
+      本报告不提供任何买卖建议，请先完成数据更新。
+    </div>
+  </div>
+
+  <section class="section">
+    <div class="sec-head">
+      <span class="sec-num">§ I</span>
+      <span class="sec-title">数据状态</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tr><td style="padding:6px 0;color:var(--ink-2);">请求日期</td><td>{requested_date}</td></tr>
+      <tr><td style="padding:6px 0;color:var(--ink-2);">预期交易日</td><td>{validation.get('expected_trade_date', '不可用')}</td></tr>
+      <tr><td style="padding:6px 0;color:var(--ink-2);">daily_hfq 最新</td><td>{validation.get('daily_hfq_date', '无数据')}（{validation.get('daily_hfq_count', 0)} 行）</td></tr>
+      <tr><td style="padding:6px 0;color:var(--ink-2);">stock_daily_raw 最新</td><td>{validation.get('stock_daily_raw_date', '无数据')}（{validation.get('stock_daily_raw_count', 0)} 行）</td></tr>
+      <tr><td style="padding:6px 0;color:var(--ink-2);">etf_daily 最新</td><td>{validation.get('etf_daily_date', '无数据')}（{validation.get('etf_daily_count', 0)} 行）</td></tr>
+      <tr><td style="padding:6px 0;color:var(--ink-2);">信号数</td><td>{n_today}</td></tr>
+      <tr><td style="padding:6px 0;color:var(--ink-2);">持仓数</td><td>{n_positions}</td></tr>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="sec-head">
+      <span class="sec-num">§ II</span>
+      <span class="sec-title">错误与警告</span>
+    </div>
+    <ul style="font-size:13px;">
+      {errors_html}
+      {warnings_html}
+    </ul>
+  </section>
+</div>
+</body></html>"""
+    ]
+    return "\n".join(html)
+
+
 def main():
     if len(sys.argv) >= 2:
         requested_date = sys.argv[1]
     else:
         requested_date = datetime.now().strftime("%Y-%m-%d")
 
-    # 解析信号数据日期（回退至 daily_hfq 最大可用日期）
+    # 数据校验
+    from v0_6.core.market_data import validate_market_data, get_expected_trade_date
+
+    expected = get_expected_trade_date(requested_date)
+    if expected is None:
+        print(f"\n❌ 交易日历不可用，无法判断预期交易日")
+        return 1
+
+    # 尝试刷新数据（不阻塞，仅当数据明显落后时）
+    if expected:
+        from v0_6.core.market_data import get_table_latest_date
+        hfq_date = get_table_latest_date("daily_hfq")
+        if hfq_date and expected.replace("-", "") > hfq_date:
+            print(f"  ⚠ daily_hfq 最新 {hfq_date}，预期 {expected}，尝试刷新...")
+            try:
+                from v0_6.scripts.refresh_market_data import main as refresh_main
+                refresh_main()
+            except Exception as e:
+                print(f"  ⚠ 刷新失败（不影响日报生成）: {e}")
+
+    # 解析信号数据日期
     signal_data_date = get_signal_data_date(requested_date)
     if signal_data_date is None:
         print(f"\n❌ 未找到 {requested_date} 当日及以前的 daily_hfq 数据，无法生成信号日报。")
         return 1
+
+    # 校验数据完整性
+    validation = validate_market_data(requested_date)
+    if not validation["ok"]:
+        print(f"\n⚠️ 行情数据未就绪，生成数据阻断报告。")
+        for err in validation["errors"]:
+            print(f"  ❌ {err}")
+        for warn in validation["warnings"]:
+            print(f"  ⚠ {warn}")
+
+        # 生成阻断报告仍可继续（信号和监控会显示在阻断报告中）
+        today_signals = get_today_signals(signal_data_date)
+        monitoring = monitor_all_positions_v6(requested_date)
+
+        html = render_blocked_report(requested_date, signal_data_date, validation, today_signals, monitoring)
+        out_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
+        out_path.write_text(html, encoding="utf-8")
+        print(f"  ⚠ 阻断报告已生成: {out_path}")
+        print(f"\n⚠️ 数据未就绪，已生成阻断报告（不含可执行买卖建议）。")
+        return 0
 
     date_note = f" (数据截至 {signal_data_date})" if signal_data_date != requested_date else ""
     print(f"\n=== 掘金日报 V1.0 HTML | {requested_date}{date_note} ===\n")

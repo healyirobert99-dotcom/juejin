@@ -28,8 +28,10 @@ def _patch_stock_db(monkeypatch, db_path):
     """同时 patch config.STOCK_DATA_DB 和所有引用 STOCK_DATA_DB 的模块级变量"""
     from v0_6.core import config as cfg
     from v0_6.core import monitor_v6
+    from v0_6.core import market_data as md
     monkeypatch.setattr(cfg, "STOCK_DATA_DB", db_path)
     monkeypatch.setattr(monitor_v6, "STOCK_DATA_DB", db_path)
+    monkeypatch.setattr(md, "STOCK_DATA_DB", db_path)
     try:
         from v0_6.scripts import trade_form_server as tfs
         monkeypatch.setattr(tfs, "STOCK_DATA_DB", db_path)
@@ -41,14 +43,17 @@ def _patch_stock_db(monkeypatch, db_path):
 
 @pytest.fixture
 def db_with_data(tmp_path):
-    """创建包含模拟 daily_hfq 和 etf_daily 的临时 stock_data.db"""
+    """创建包含模拟 daily_hfq/etf_daily/stock_daily_raw 的临时 stock_data.db"""
     db_path = tmp_path / "stock_data.db"
     con = sqlite3.connect(str(db_path))
     con.execute("CREATE TABLE daily_hfq (ts_code TEXT, trade_date TEXT, close REAL)")
     con.execute("CREATE TABLE etf_daily (ts_code TEXT, trade_date TEXT, close REAL)")
+    con.execute("CREATE TABLE stock_daily_raw (ts_code TEXT, trade_date TEXT, close REAL)")
     for code in ["000001.SZ", "600000.SH"]:
         for d in [20260619, 20260620, 20260623, 20260624, 20260625, 20260626]:
             con.execute("INSERT INTO daily_hfq VALUES (?, ?, ?)",
+                        (code, str(d), 10.0 + (d % 10) * 0.1))
+            con.execute("INSERT INTO stock_daily_raw VALUES (?, ?, ?)",
                         (code, str(d), 10.0 + (d % 10) * 0.1))
     for code in ["512800.SH", "512480.SH"]:
         for d in [20260619, 20260620, 20260623, 20260624, 20260625, 20260626]:
@@ -66,9 +71,12 @@ def db_etf_newer(tmp_path):
     con = sqlite3.connect(str(db_path))
     con.execute("CREATE TABLE daily_hfq (ts_code TEXT, trade_date TEXT, close REAL)")
     con.execute("CREATE TABLE etf_daily (ts_code TEXT, trade_date TEXT, close REAL)")
+    con.execute("CREATE TABLE stock_daily_raw (ts_code TEXT, trade_date TEXT, close REAL)")
     for code in ["000001.SZ"]:
         for d in [20260623, 20260624, 20260625]:
             con.execute("INSERT INTO daily_hfq VALUES (?, ?, ?)",
+                        (code, str(d), 10.0 + (d % 10) * 0.1))
+            con.execute("INSERT INTO stock_daily_raw VALUES (?, ?, ?)",
                         (code, str(d), 10.0 + (d % 10) * 0.1))
     for code in ["512800.SH"]:
         for d in [20260623, 20260624, 20260625, 20260626]:
@@ -216,7 +224,15 @@ def test_auto_calc_rules_routing(monkeypatch, db_with_data):
     assert etf_rules, "ETF 应返回规则"
     assert "latest_price" in etf_rules
 
-    # STOCK -> daily_hfq
+    # STOCK -> stock_daily_raw（需要在 db_with_data 中添加 stock_daily_raw）
+    _patch_stock_db(monkeypatch, db_with_data)
+    con2 = sqlite3.connect(str(db_with_data))
+    con2.execute("CREATE TABLE IF NOT EXISTS stock_daily_raw (ts_code TEXT, trade_date TEXT, close REAL)")
+    for d in [20260619, 20260620, 20260623, 20260624, 20260625, 20260626]:
+        con2.execute("INSERT INTO stock_daily_raw VALUES ('000001.SZ', ?, 10.0)", (str(d),))
+    con2.commit()
+    con2.close()
+
     stock_rules = auto_calc_rules("000001.SZ", "STOCK", "2026-06-26")
     assert stock_rules, "STOCK 应返回规则"
     assert "latest_price" in stock_rules
@@ -235,6 +251,7 @@ def db_sparse(tmp_path):
     con = sqlite3.connect(str(db_path))
     con.execute("CREATE TABLE daily_hfq (ts_code TEXT, trade_date TEXT, close REAL)")
     con.execute("CREATE TABLE etf_daily (ts_code TEXT, trade_date TEXT, close REAL)")
+    con.execute("CREATE TABLE stock_daily_raw (ts_code TEXT, trade_date TEXT, close REAL)")
     for code in ["512800.SH"]:
         for d in [20260620, 20260621, 20260622]:
             con.execute("INSERT INTO etf_daily VALUES (?, ?, ?)",

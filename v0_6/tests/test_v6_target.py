@@ -165,9 +165,21 @@ def test_etf_routing_uses_etf_daily():
     assert r["target_type"] == "ETF"
 
 
-def test_stock_routing_uses_daily_hfq():
-    """STOCK 类型只查 daily_hfq，不进行业查询（只读 stock_data.db）"""
+def test_stock_routing_uses_stock_daily_raw(monkeypatch, tmp_path):
+    """STOCK 类型只查 stock_daily_raw，不进行业查询"""
+    from v0_6.core import config as cfg
     from v0_6.core.monitor_v6 import evaluate_position_v6
+    db = tmp_path / "stock_data.db"
+    import sqlite3
+    con = sqlite3.connect(str(db))
+    con.execute("CREATE TABLE IF NOT EXISTS stock_daily_raw (ts_code TEXT, trade_date TEXT, close REAL)")
+    for d in ["20260105", "20260315", "20260620"]:
+        con.execute("INSERT INTO stock_daily_raw VALUES ('000001.SZ', ?, 10.5)", (d,))
+    con.commit()
+    con.close()
+    monkeypatch.setattr(cfg, "STOCK_DATA_DB", db)
+    import v0_6.core.monitor_v6 as mon
+    monkeypatch.setattr(mon, "STOCK_DATA_DB", db)
 
     r = evaluate_position_v6(
         target="000001.SZ", target_type="STOCK",
@@ -175,7 +187,7 @@ def test_stock_routing_uses_daily_hfq():
         today="2026-06-24", progress=0.0,
     )
     assert "error" not in r, f"STOCK 不应报错: {r.get('error')}"
-    assert r["current_price"] is not None
+    assert abs(r["current_price"] - 10.5) < 1e-9
     assert r["target_type"] == "STOCK"
 
 

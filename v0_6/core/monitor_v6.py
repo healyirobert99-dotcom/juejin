@@ -30,7 +30,7 @@ def get_target_price(target: str, target_type: str, end_date: str) -> pd.DataFra
     """按标的类型获取价格序列
 
     ETF   → 查 etf_daily 表（ETF 自身收盘价）
-    STOCK → 查 daily_hfq 表（个股后复权价）
+    STOCK → 查 stock_daily_raw 表（个股未复权收盘价）
     INDUSTRY → 不返回价格（行业不可执行）
 
     返回 DataFrame(columns=[trade_date, close])，按日期升序。
@@ -46,14 +46,27 @@ def get_target_price(target: str, target_type: str, end_date: str) -> pd.DataFra
     start_dt = end_dt - pd.Timedelta(days=180)
     con = sqlite3.connect(str(STOCK_DATA_DB), uri=False)
 
-    # 构造候选代码列表（兼容 6 位无后缀、带 .SH/.SZ 等格式）
+    # 构造候选代码列表
     candidates = [target]
     if "." not in target:
-        if target.startswith(("5", "1")):
-            candidates.insert(0, target + ".SH")
+        if target_type == "ETF":
+            from .market_data import normalize_etf_ts_code
+            try:
+                normalized = normalize_etf_ts_code(target)
+                if normalized != target:
+                    candidates.insert(0, normalized)
+            except ValueError:
+                pass
+            candidates.append(target + ".SH")
             candidates.append(target + ".SZ")
-    elif not target.endswith((".SH", ".SZ")):
-        candidates = [target]
+        else:  # STOCK
+            from .market_data import normalize_stock_ts_code
+            try:
+                normalized = normalize_stock_ts_code(target)
+                if normalized != target:
+                    candidates.insert(0, normalized)
+            except ValueError:
+                pass
 
     rows = None
     for c in candidates:
@@ -64,9 +77,9 @@ def get_target_price(target: str, target_type: str, end_date: str) -> pd.DataFra
                 "ORDER BY trade_date ASC",
                 (c, start_dt.strftime("%Y%m%d"), end_dt.strftime("%Y%m%d")),
             ).fetchall()
-        else:  # STOCK
+        else:  # STOCK — 使用未复权行情
             rows = con.execute(
-                'SELECT trade_date, close FROM "daily_hfq" '
+                'SELECT trade_date, close FROM stock_daily_raw '
                 "WHERE ts_code = ? AND trade_date >= ? AND trade_date <= ? "
                 "ORDER BY trade_date ASC",
                 (c, start_dt.strftime("%Y%m%d"), end_dt.strftime("%Y%m%d")),
@@ -82,6 +95,23 @@ def get_target_price(target: str, target_type: str, end_date: str) -> pd.DataFra
     df["trade_date"] = pd.to_datetime(df["trade_date"])
     df = df.sort_values("trade_date").reset_index(drop=True)
     return df
+
+
+def _raw_price_unavailable_err(target: str, entry_date: str) -> dict:
+    return {
+        "target": target,
+        "target_type": "STOCK",
+        "entry_date": entry_date,
+        "error": "raw_price_unavailable",
+        "action": "ERROR",
+        "priority": "YELLOW",
+        "alerts": [{
+            "type": "RAW_PRICE_UNAVAILABLE",
+            "message": "缺少未复权个股行情，无法可靠计算盈亏和止盈止损",
+            "action": "ERROR",
+            "priority": "YELLOW",
+        }],
+    }
 
 
 def evaluate_position_v6(
@@ -164,6 +194,9 @@ def evaluate_position_v6(
                 today = fallback_date
                 break
         if prices.empty:
+            # STOCK 无未复权行情时返回 raw_price_unavailable（不回退 daily_hfq）
+            if target_type == "STOCK":
+                return _raw_price_unavailable_err(target, entry_date)
             return {
                 "target": target,
                 "target_type": target_type,

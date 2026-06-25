@@ -98,7 +98,7 @@ def auto_calc_rules(target: str, target_type: str, trade_date: str) -> dict:
     if target_type == "ETF":
         table = "etf_daily"
     elif target_type == "STOCK":
-        table = 'daily_hfq'
+        table = "stock_daily_raw"
     else:
         con.close()
         return {}

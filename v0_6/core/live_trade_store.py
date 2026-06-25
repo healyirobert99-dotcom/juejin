@@ -146,39 +146,15 @@ def init_schema() -> None:
 # ============== 标的匹配 ==============
 
 def load_sector_etf_map() -> dict:
-    """加载 行业→ETF 映射表
+    """加载 行业→ETF 映射表（兼容旧接口，会因 dict 覆盖丢失多对多）
 
-    Returns:
-        {
-            "512800": {"name": "华宝中证银行ETF", "sector": "金融", "sub": "银行", "index": "中证银行指数", "purity": "纯"},
-            ...
-        }
+    新代码请使用 market_data.load_sector_etf_rows()
     """
-    path = DATA_DIR / "sector_etf_map.csv"
-    if not path.exists():
-        return {}
+    from .market_data import load_sector_etf_rows as _rows
+    rows = _rows()
     out = {}
-    with open(path, encoding="utf-8") as f:
-        reader = csv.reader(f)
-        header = next(reader)
-        for row in reader:
-            if not row or row[0].startswith("==="):
-                continue
-            if len(row) < 6 or not row[3].strip() or row[3] == "—":
-                continue
-            sector = row[0].strip()
-            sub = row[2].strip()
-            etf = row[3].strip()
-            name = row[4].strip()
-            idx = row[5].strip() if len(row) > 5 else ""
-            purity = row[7].strip() if len(row) > 7 else ""
-            out[etf] = {
-                "name": name,
-                "sector": sector,
-                "sub": sub,
-                "index": idx,
-                "purity": purity,
-            }
+    for r in rows:
+        out.setdefault(r["code"], r)
     return out
 
 
