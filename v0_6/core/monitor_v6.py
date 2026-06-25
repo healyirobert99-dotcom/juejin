@@ -24,7 +24,6 @@ import pandas as pd
 
 from .config import DB_PATH, STOCK_DATA_DB
 from .gold_signal_v6 import get_bucket, PROGRESS_BUCKETS
-from .live_trade_store import list_open_positions
 
 
 def get_target_price(target: str, target_type: str, end_date: str) -> pd.DataFrame:
@@ -296,31 +295,26 @@ def evaluate_position_v6(
 
 
 def monitor_all_positions_v6(today: str = None) -> List[dict]:
-    """监控所有未平仓持仓（v6 规则）"""
+    """监控所有未平仓持仓（v6 规则）
+
+    按 target 聚合净持仓后逐标监控。
+    """
+    from .live_trade_store import get_position_summary_all
+
     if today is None:
         today = datetime.now().strftime("%Y-%m-%d")
 
-    positions = list_open_positions()
+    summaries = get_position_summary_all()
     results = []
-    for pos in positions:
-        if pos.get("action") not in ("BUY", "ADD"):
-            continue
-
-        target = pos.get("target") or pos.get("industry", "?")
-        target_type = pos.get("target_type")  # 保留 None/空，不猜测成 INDUSTRY
-
+    for s in summaries:
         result = evaluate_position_v6(
-            target=target,
-            target_type=target_type,
-            entry_date=pos["trade_date"],
-            entry_price=pos["price"],
+            target=s["target"],
+            target_type=s["target_type"],
+            entry_date=s["first_buy"],
+            entry_price=s["avg_cost"],
             today=today,
-            progress=pos.get("progress_at_entry") or 0.05,
-            stop_threshold=pos.get("stop_threshold"),
-            take_profit_threshold=pos.get("take_profit_threshold"),
-            progress_bucket=pos.get("progress_bucket"),
-            reduced_1_3=bool(pos.get("reduced_1_3", 0)),
+            progress=0.05,  # 默认值，由后续监控中的 60d_low 重算
+            reduced_1_3=s["has_reduced"],
         )
-        result["trade_id"] = pos["trade_id"]
         results.append(result)
     return results

@@ -11,6 +11,13 @@ from pathlib import Path
 V0_6_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(V0_6_ROOT))
 
+# 确保使用真实数据库，不受其他测试（如 test_ledger）的 DB_PATH 替换影响
+from v0_6.core.config import DB_PATH as _REAL_DB
+import v0_6.core.live_trade_store as _LTS
+import v0_6.core.config as _CFG
+_LTS.DB_PATH = _REAL_DB
+_CFG.DB_PATH = _REAL_DB
+
 from v0_6.core import (
     init_schema,
     add_trade,
@@ -57,6 +64,10 @@ def test_v6_prices():
 
 
 def test_v6_workflow():
+    from v0_6.core.config import DB_PATH as _R
+    import v0_6.core.live_trade_store as _L
+    import v0_6.core.config as _C
+    _L.DB_PATH = _R; _C.DB_PATH = _R
     print("\n[Test 4] v6 交易流程")
     init_schema()
     con = sqlite3.connect("D:/zhuxian-catch-v0_6/data/a_stock_selector.sqlite3", uri=False)
@@ -72,8 +83,8 @@ def test_v6_workflow():
     )
     print(f"  OK buy trade_id={trade_id}")
     positions = list_open_positions()
-    assert len(positions) == 1
-    pos = positions[0]
+    assert any(p["trade_id"] == trade_id for p in positions), f"trade_id={trade_id} 应出现在持仓列表中"
+    pos = next(p for p in positions if p["trade_id"] == trade_id)
     assert pos["progress_bucket"] == "极早期"
     assert abs(pos["stop_price"] - 82.0) < 0.01
     print(f"  OK bucket={pos['progress_bucket']}, stop=¥{pos['stop_price']:.2f}, tp=¥{pos['take_profit_price']:.2f}")

@@ -27,9 +27,10 @@ from v0_6.core import (
     calc_progress_for_etf,
     calc_stop_price,
     calc_take_profit_price,
-    close_trade,
+    close_trade_by_target,
     get_bucket,
     get_position_net,
+    get_position_summary_all,
     init_schema,
     list_open_positions,
     load_sector_etf_map,
@@ -905,32 +906,54 @@ class TradeFormHandler(BaseHTTPRequestHandler):
             elif action == "REDUCE":
                 if not parent_trade_id:
                     raise ValueError("REDUCE 必须提供 parent_trade_id")
-                # 拉原 trade + 算金额
+                if not price or price <= 0:
+                    raise ValueError("REDUCE 必须提供实际成交价")
+
+                # 查原持仓
                 con = sqlite3.connect(str(DB_PATH))
                 con.row_factory = sqlite3.Row
                 row = con.execute(
                     "SELECT * FROM live_trades WHERE trade_id = ? AND closed = 0",
                     (parent_trade_id,),
                 ).fetchone()
-                con.close()
                 if not row:
-                    raise ValueError(f"trade_id {parent_trade_id} 不存在")
+                    con.close()
+                    raise ValueError(f"trade_id {parent_trade_id} 不存在或已平仓")
+
+                # 校验减仓股数不超过净持仓
+                shares = amount / price
+                net = get_position_net(row["target"])
+                if net["net_shares"] <= 0:
+                    con.close()
+                    raise ValueError(f"标的 '{row['target']}' 当前无持仓，不可减仓")
+                if shares > net["net_shares"]:
+                    con.close()
+                    raise ValueError(
+                        f"减仓股数 {shares:.0f} 超过净持仓 {net['net_shares']:.0f}"
+                    )
+
                 trade_id = add_trade(
                     target=row["target"],
                     target_type=row["target_type"],
                     target_name=row["target_name"],
                     action="REDUCE",
                     amount=amount,
+                    price=price,
+                    shares=shares,
                     trade_date=date,
-                    notes=notes or f"减仓 1/3 from #{parent_trade_id}",
+                    notes=notes or f"减仓 from #{parent_trade_id}",
                 )
-                con = sqlite3.connect(str(DB_PATH))
-                con.execute("UPDATE live_trades SET reduced_1_3 = 1 WHERE trade_id = ?", (parent_trade_id,))
+                # reduced_1_3 标记是 per-target 级，只要任意 REDUCE 就算
+                con.execute("UPDATE live_trades SET reduced_1_3 = 1 WHERE target = ?", (row["target"],))
                 con.commit()
                 con.close()
             elif action == "SELL":
                 if not parent_trade_id:
                     raise ValueError("SELL 必须提供 parent_trade_id")
+                if not price or price <= 0:
+                    raise ValueError("SELL 必须提供实际成交价")
+
+                # 查原持仓
                 con = sqlite3.connect(str(DB_PATH))
                 con.row_factory = sqlite3.Row
                 row = con.execute(
@@ -939,20 +962,27 @@ class TradeFormHandler(BaseHTTPRequestHandler):
                 ).fetchone()
                 con.close()
                 if not row:
-                    raise ValueError(f"trade_id {parent_trade_id} 不存在")
-                # 用最新价作为 close_price
-                latest = get_etf_latest_price(row["target"])
-                close_price = latest.get("price") if latest else row["price"]
+                    raise ValueError(
+                        f"标的 '#{parent_trade_id}' 当前无未平仓持仓，不允许清仓。"
+                        "请检查 trade_id 是否已平仓。"
+                    )
+
+                # 用实际成交价关闭该 target 的全部持仓
+                close_price = price
+                shares = amount / price
+                summary = close_trade_by_target(row["target"], close_price, date)
+
                 trade_id = add_trade(
                     target=row["target"],
                     target_type=row["target_type"],
                     target_name=row["target_name"],
                     action="SELL",
                     amount=amount,
+                    price=price,
+                    shares=shares,
                     trade_date=date,
-                    notes=notes or f"清仓离场 from #{parent_trade_id}",
+                    notes=notes or f"清仓离场 {row['target']}",
                 )
-                close_trade(parent_trade_id, close_price, date)
             else:
                 raise ValueError(f"未知 action: {action}")
 

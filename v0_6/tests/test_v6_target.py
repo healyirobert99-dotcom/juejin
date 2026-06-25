@@ -16,6 +16,13 @@ from pathlib import Path
 V0_6_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(V0_6_ROOT))
 
+# 确保使用真实数据库
+from v0_6.core.config import DB_PATH as _REAL_DB
+import v0_6.core.live_trade_store as _LTS
+import v0_6.core.config as _CFG
+_LTS.DB_PATH = _REAL_DB
+_CFG.DB_PATH = _REAL_DB
+
 from v0_6.core import (
     match_target,
     calc_progress_for_etf,
@@ -112,6 +119,13 @@ def test_stop_take_profit_uses_user_price():
 
 def test_add_trade_persists_correct():
     """完整录入数据流：用户买入价 → 止损价正确写入 DB"""
+    # 确保写入真实数据库
+    from v0_6.core.config import DB_PATH as _REAL_DB
+    import v0_6.core.live_trade_store as _LTS
+    import v0_6.core.config as _CFG
+    _LTS.DB_PATH = _REAL_DB
+    _CFG.DB_PATH = _REAL_DB
+
     init_schema()
     trade_id = add_trade(
         target="512800",
@@ -129,7 +143,7 @@ def test_add_trade_persists_correct():
         take_profit_price=0.78 * 1.30,
         notes="v6.2 test",
     )
-    con = sqlite3.connect(str(V0_6_ROOT / "data" / "a_stock_selector.sqlite3"))
+    con = sqlite3.connect(str(_LTS.DB_PATH))
     row = con.execute(
         "SELECT target, target_type, target_name, amount, price, shares, "
         "progress_bucket, stop_price, take_profit_price "

@@ -437,7 +437,10 @@ def add_trade(
 
 
 def list_open_positions() -> List[dict]:
-    """列出所有未平仓的 BUY/ADD 记录（按 target 聚合）"""
+    """列出所有未平仓的 BUY/ADD 记录（逐行返回，不聚合）
+
+    注意：新代码应优先使用 get_position_summary_all() 获取净持仓。
+    """
     init_schema()
     con = sqlite3.connect(str(DB_PATH))
     con.row_factory = sqlite3.Row
@@ -453,32 +456,96 @@ def list_open_positions() -> List[dict]:
 
 
 def get_position_net(target: str) -> dict:
-    """获取一个 target 的净持仓"""
+    """获取一个 target 的净持仓
+
+    avg_cost = 累计买入金额 ÷ 累计买入股数（金额加权）
+    REDUCE/SELL 不改变成本，只减少股数。
+    """
     init_schema()
     con = sqlite3.connect(str(DB_PATH))
     buys = con.execute(
-        "SELECT SUM(shares) AS s, SUM(amount) AS a, MIN(trade_date) AS d, AVG(price) AS p FROM live_trades WHERE target = ? AND action IN ('BUY', 'ADD') AND closed = 0",
+        "SELECT SUM(shares) AS s, SUM(amount) AS a, MIN(trade_date) AS d FROM live_trades "
+        "WHERE target = ? AND action IN ('BUY', 'ADD') AND closed = 0",
         (target,),
     ).fetchone()
     sells = con.execute(
-        "SELECT SUM(shares) AS s, SUM(amount) AS a FROM live_trades WHERE target = ? AND action IN ('SELL', 'REDUCE') AND closed = 0",
+        "SELECT SUM(shares) AS s FROM live_trades "
+        "WHERE target = ? AND action IN ('REDUCE', 'SELL') AND closed = 0",
         (target,),
     ).fetchone()
     con.close()
-    net_shares = (buys[0] or 0) - (sells[0] or 0)
+    buy_shares = buys[0] or 0
+    buy_amount = buys[1] or 0
+    sell_shares = sells[0] or 0
+    net_shares = buy_shares - sell_shares
     if net_shares <= 0:
         return {"target": target, "net_shares": 0, "net_amount": 0, "avg_cost": 0, "first_buy": None}
+    avg_cost = buy_amount / buy_shares  # 金额加权，不受卖出影响
     return {
         "target": target,
         "net_shares": net_shares,
-        "net_amount": (buys[1] or 0) - (sells[1] or 0),
-        "avg_cost": buys[3] or 0,
+        "net_amount": avg_cost * net_shares,  # 剩余持仓的账面成本
+        "avg_cost": avg_cost,
         "first_buy": buys[2],
     }
 
 
+def get_position_summary_all() -> List[dict]:
+    """按 target 汇总所有未平仓标的的净持仓
+
+    返回每个 target 一条记录，包含：
+    - target, target_type, target_name
+    - total_shares: 净股数（BUY+ADD 减 REDUCE+SELL）
+    - avg_cost: 金额加权平均成本
+    - first_buy: 首次买入日期
+    - has_reduced: 该标的是否曾减仓（任意行有 reduced_1_3）
+    净持仓 ≤ 0 的标的不返回。
+    """
+    init_schema()
+    con = sqlite3.connect(str(DB_PATH))
+    con.row_factory = sqlite3.Row
+    rows = con.execute(
+        """
+        SELECT
+            target,
+            target_type,
+            MIN(target_name) AS target_name,
+            SUM(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN shares ELSE 0 END) AS buy_shares,
+            SUM(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN amount ELSE 0 END) AS buy_amount,
+            SUM(CASE WHEN action IN ('REDUCE', 'SELL') THEN shares ELSE 0 END) AS sell_shares,
+            MIN(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN trade_date END) AS first_buy,
+            MAX(CASE WHEN reduced_1_3 = 1 THEN 1 ELSE 0 END) AS has_reduced
+        FROM live_trades
+        GROUP BY target, target_type
+        HAVING buy_shares - sell_shares > 0
+        ORDER BY first_buy
+        """
+    ).fetchall()
+    con.close()
+
+    results = []
+    for r in rows:
+        buy_shares = r["buy_shares"] or 0
+        buy_amount = r["buy_amount"] or 0
+        sell_shares = r["sell_shares"] or 0
+        net_shares = buy_shares - sell_shares
+        if net_shares <= 0:
+            continue
+        avg_cost = buy_amount / buy_shares if buy_shares > 0 else 0
+        results.append({
+            "target": r["target"],
+            "target_type": r["target_type"],
+            "target_name": r["target_name"],
+            "total_shares": net_shares,
+            "avg_cost": avg_cost,
+            "first_buy": r["first_buy"],
+            "has_reduced": bool(r["has_reduced"]),
+        })
+    return results
+
+
 def close_trade(trade_id: int, close_price: float, close_date: str) -> None:
-    """平仓一笔交易"""
+    """平仓一笔交易（单笔）"""
     con = sqlite3.connect(str(DB_PATH))
     trade = con.execute(
         "SELECT price, shares FROM live_trades WHERE trade_id = ? AND closed = 0",
@@ -495,3 +562,46 @@ def close_trade(trade_id: int, close_price: float, close_date: str) -> None:
     )
     con.commit()
     con.close()
+
+
+def close_trade_by_target(target: str, close_price: float, close_date: str) -> dict:
+    """平仓某 target 的全部未平仓 BUY/ADD 记录
+
+    - 每行按各自买入价计算 close_pnl_pct
+    - 没有未平仓记录时抛出 ValueError（拒绝重复清仓）
+    - 返回汇总：{target, total_shares, total_pnl, avg_pnl_pct}
+    """
+    con = sqlite3.connect(str(DB_PATH))
+    open_rows = con.execute(
+        "SELECT trade_id, price, shares FROM live_trades "
+        "WHERE target = ? AND action IN ('BUY', 'ADD') AND closed = 0",
+        (target,),
+    ).fetchall()
+    if not open_rows:
+        con.close()
+        raise ValueError(f"标的 '{target}' 当前无未平仓持仓，不允许清仓")
+
+    total_shares = 0
+    total_pnl = 0
+    for row in open_rows:
+        entry_price = row[1]
+        pnl_pct = (close_price - entry_price) / entry_price if entry_price else 0
+        shares = row[2]
+        pnl_amount = (close_price - entry_price) * shares
+        con.execute(
+            "UPDATE live_trades SET closed = 1, close_date = ?, close_price = ?, close_pnl_pct = ? WHERE trade_id = ?",
+            (close_date, close_price, pnl_pct, row[0]),
+        )
+        total_shares += shares
+        total_pnl += pnl_amount
+
+    con.commit()
+    con.close()
+    avg_entry = total_pnl / total_shares + close_price if total_shares > 0 else 0
+    avg_pnl_pct = (close_price - avg_entry) / avg_entry if avg_entry else 0
+    return {
+        "target": target,
+        "total_shares": total_shares,
+        "total_pnl": round(total_pnl, 2),
+        "avg_pnl_pct": round(avg_pnl_pct, 4),
+    }
