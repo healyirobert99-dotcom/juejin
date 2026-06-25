@@ -82,6 +82,7 @@ def get_expected_trade_date(requested_date: str) -> str | None:
 
     格式 YYYY-MM-DD。
     无交易日历数据时返回 None（无法判断）。
+    如果 requested_date 晚于日历最大日期，也返回 None（日历覆盖不足）。
     """
     cal = load_market_calendar()
     if cal.empty:
@@ -92,6 +93,10 @@ def get_expected_trade_date(requested_date: str) -> str | None:
     # 格式化
     cal["cal_date"] = pd.to_datetime(cal["cal_date"])
     target = pd.to_datetime(requested_date)
+    # 检查覆盖范围
+    max_cal = cal["cal_date"].max()
+    if target > max_cal:
+        return None  # 日历覆盖不足
     eligible = cal[cal["cal_date"] <= target]
     if eligible.empty:
         return None
@@ -155,10 +160,12 @@ def validate_market_data(requested_date: str, open_positions: list[dict] | None 
             "etf_daily_count": int,
             "errors": list[str],
             "warnings": list[str],
+            "position_errors": list[dict],
         }
     """
     errors = []
     warnings = []
+    position_errors = []
 
     expected = get_expected_trade_date(requested_date)
     if expected is None:
@@ -179,7 +186,6 @@ def validate_market_data(requested_date: str, open_positions: list[dict] | None 
     daily_hfq_median = 0
     if daily_hfq_date and expected:
         daily_hfq_count = get_table_row_count("daily_hfq", daily_hfq_date)
-        # 前5个完整交易日中位数
         if STOCK_DATA_DB.exists():
             con = sqlite3.connect(str(STOCK_DATA_DB))
             rows = con.execute(
@@ -216,8 +222,8 @@ def validate_market_data(requested_date: str, open_positions: list[dict] | None 
     else:
         errors.append("etf_daily 无数据")
 
-    # 开放持仓校验
-    if open_positions:
+    # 开放持仓校验（持仓级错误会阻断 ok）
+    if open_positions and expected:
         if STOCK_DATA_DB.exists():
             con = sqlite3.connect(str(STOCK_DATA_DB))
             for pos in open_positions:
@@ -228,24 +234,58 @@ def validate_market_data(requested_date: str, open_positions: list[dict] | None 
                         tc = normalize_etf_ts_code(target)
                         row = con.execute(
                             "SELECT MAX(trade_date) FROM etf_daily WHERE ts_code = ? AND trade_date <= ?",
-                            (tc, (expected or "99999999").replace("-", "")),
+                            (tc, expected.replace("-", "")),
                         ).fetchone()
-                        if not row or not row[0]:
-                            warnings.append(f"ETF {target}（{tc}）无有效行情")
+                        actual = row[0] if row else None
+                        if not actual:
+                            position_errors.append({
+                                "target": target, "target_type": "ETF",
+                                "expected_date": expected, "actual_date": None,
+                                "error": "no_price",
+                            })
+                        elif actual != expected.replace("-", ""):
+                            position_errors.append({
+                                "target": target, "target_type": "ETF",
+                                "expected_date": expected, "actual_date": actual,
+                                "error": "stale_price",
+                            })
                     except ValueError:
-                        warnings.append(f"ETF {target} 代码无法标准化")
+                        position_errors.append({
+                            "target": target, "target_type": "ETF",
+                            "expected_date": expected, "actual_date": None,
+                            "error": "invalid_code",
+                        })
                 elif ttype == "STOCK":
                     try:
                         tc = normalize_stock_ts_code(target)
                         row = con.execute(
                             "SELECT MAX(trade_date) FROM stock_daily_raw WHERE ts_code = ? AND trade_date <= ?",
-                            (tc, (expected or "99999999").replace("-", "")),
+                            (tc, expected.replace("-", "")),
                         ).fetchone()
-                        if not row or not row[0]:
-                            warnings.append(f"STOCK {target}（{tc}）无未复权行情数据")
+                        actual = row[0] if row else None
+                        if not actual:
+                            position_errors.append({
+                                "target": target, "target_type": "STOCK",
+                                "expected_date": expected, "actual_date": None,
+                                "error": "no_price",
+                            })
+                        elif actual != expected.replace("-", ""):
+                            position_errors.append({
+                                "target": target, "target_type": "STOCK",
+                                "expected_date": expected, "actual_date": actual,
+                                "error": "stale_price",
+                            })
                     except ValueError:
-                        warnings.append(f"STOCK {target} 代码无法标准化")
+                        position_errors.append({
+                            "target": target, "target_type": "STOCK",
+                            "expected_date": expected, "actual_date": None,
+                            "error": "invalid_code",
+                        })
             con.close()
+
+    # 持仓级问题也阻断 ok
+    if position_errors:
+        errors.append(f"{len(position_errors)} 个开放持仓行情数据不满足预期交易日")
 
     return {
         "ok": len(errors) == 0,
@@ -260,6 +300,7 @@ def validate_market_data(requested_date: str, open_positions: list[dict] | None 
         "etf_daily_count": etf_count,
         "errors": errors,
         "warnings": warnings,
+        "position_errors": position_errors,
     }
 
 

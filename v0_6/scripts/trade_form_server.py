@@ -41,46 +41,42 @@ from v0_6.core.config import DB_PATH, STOCK_DATA_DB
 PORT = 8765
 
 
-def get_etf_latest_price(target: str) -> dict:
-    """拉某标的的最新价（ETF 用 etf_daily；个股用 daily_hfq）"""
-    con = sqlite3.connect(str(STOCK_DATA_DB))
-    candidates = [target]
-    if "." not in target:
-        if target.startswith(("5", "1")):
-            candidates.append(target + ".SH")
-            candidates.append(target + ".SZ")
-    else:
-        candidates = [target]
-
-    for c in candidates:
-        # 试 etf_daily
-        row = con.execute(
-            "SELECT trade_date, close FROM etf_daily WHERE ts_code = ? ORDER BY trade_date DESC LIMIT 1",
-            (c,),
-        ).fetchone()
-        if row:
-            con.close()
-            return {"price": row[1], "as_of": row[0], "source": "etf_daily"}
-        # 试 daily_hfq（个股）
-        row = con.execute(
-            'SELECT trade_date, close FROM "daily_hfq" WHERE ts_code = ? ORDER BY trade_date DESC LIMIT 1',
-            (c,),
-        ).fetchone()
-        if row:
-            con.close()
-            return {"price": row[1], "as_of": row[0], "source": "daily_hfq"}
-    con.close()
-    return {}
-
 
 def auto_calc_rules(target: str, target_type: str, trade_date: str) -> dict:
     """对 ETF/STOCK 自动算：当前价、60d_low、进度、桶、止损/止盈价
 
     全部使用 trade_date 当日及以前的数据（不使用该日期之后的未来价格）。
     行业（INDUSTRY）无标的价，退回让用户手动。
+
+    如果数据陈旧，返回 market_data_ok=False，不生成自动建议。
     """
     if target_type == "INDUSTRY":
         return {}
+
+    # 数据新鲜度校验
+    from v0_6.core.market_data import get_expected_trade_date, validate_market_data
+    expected = get_expected_trade_date(trade_date)
+    if expected is None:
+        return {"market_data_ok": False, "error": "stale_market_data",
+                "message": "自动行情不可用，请按真实成交结果手动录入。"}
+
+    # 检查该标的是否达到预期交易日
+    pos_check = validate_market_data(trade_date, open_positions=[{
+        "target": target, "target_type": target_type,
+    }])
+    if not pos_check["ok"]:
+        actual_date = None
+        for pe in pos_check.get("position_errors", []):
+            if pe["target"] == target or target in pe["target"]:
+                actual_date = pe.get("actual_date")
+                break
+        return {
+            "market_data_ok": False,
+            "error": "stale_market_data",
+            "message": "自动行情不可用，请按真实成交结果手动录入。",
+            "as_of": actual_date,
+            "expected_date": expected,
+        }
 
     con = sqlite3.connect(str(STOCK_DATA_DB))
     date_yyyymmdd = trade_date.replace("-", "")

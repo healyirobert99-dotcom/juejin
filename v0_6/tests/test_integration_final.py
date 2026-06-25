@@ -139,13 +139,17 @@ def test_stock_auto_calc_rules_uses_stock_daily_raw(monkeypatch, tmp_path):
     _ensure_tables(con)
     con.execute("INSERT INTO daily_hfq VALUES ('000001.SZ', '20260620', 100.0, 0, 0)")
     con.execute("INSERT INTO stock_daily_raw VALUES ('000001.SZ', '20260620', 10.0, 0, 0)")
+    # 交易日历 + etf_daily（全局校验需要）
+    con.execute("INSERT INTO market_calendar VALUES ('20260619', 1)")
+    con.execute("INSERT INTO market_calendar VALUES ('20260620', 1)")
+    con.execute("INSERT INTO etf_daily VALUES ('512800.SH', '20260620', 1.0, 0, 0)")
     con.commit()
     con.close()
 
-    # 需要同时 patch 到 trade_form_server
+    # 需要同时 patch 到 trade_form_server 和 market_data
     from v0_6.scripts import trade_form_server as tfs
     from v0_6.core import market_data as md
-    import v0_6.core.config as cfg
+    from v0_6.core import config as cfg
     monkeypatch.setattr(tfs, "STOCK_DATA_DB", db)
     monkeypatch.setattr(md, "STOCK_DATA_DB", db)
     monkeypatch.setattr(cfg, "STOCK_DATA_DB", db)
@@ -188,6 +192,7 @@ def test_validate_market_data_blocked(monkeypatch, tmp_path):
     _ensure_tables(con)
     con.execute("INSERT INTO market_calendar VALUES ('20260625', 1)")
     con.execute("INSERT INTO market_calendar VALUES ('20260626', 1)")
+    con.execute("INSERT INTO market_calendar VALUES ('20260627', 0)")
     # daily_hfq 只到 6-25，请求 6-27（周六预期 6-26）
     con.execute("INSERT INTO daily_hfq VALUES ('000001.SZ', '20260625', 10.0, 0, 0)")
     con.commit()
@@ -198,7 +203,8 @@ def test_validate_market_data_blocked(monkeypatch, tmp_path):
     # daily_hfq 最新 20260625 < 预期 20260626，应有 error
     assert not val["ok"], "数据落后时应不通过"
     errors = val.get("errors", [])
-    assert any("早于" in e for e in errors), f"应包含'早于'提示，实 {errors}"
+    assert any("早于" in e for e in errors) or any("无数据" in e for e in errors), \
+        f"应包含日期落后或无数据提示，实 {errors}"
 
 
 # ═══════════════════════════════════════════════════

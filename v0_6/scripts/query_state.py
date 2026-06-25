@@ -13,7 +13,8 @@ from pathlib import Path
 V0_6_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(V0_6_ROOT))
 
-from v0_6.core import monitor_all_positions_v6, init_schema
+from v0_6.core import monitor_all_positions_v6, init_schema, get_position_summary_all
+from v0_6.core.market_data import validate_market_data
 
 
 def main():
@@ -24,6 +25,20 @@ def main():
     init_schema()
     requested_date = args.today or datetime.now().strftime("%Y-%m-%d")
     print(f"查询日期: {requested_date}\n")
+
+    # 数据门禁
+    open_positions = get_position_summary_all()
+    validation = validate_market_data(requested_date, open_positions=open_positions)
+    if not validation["ok"]:
+        print("行情数据未就绪，暂停生成持仓操作建议。")
+        print(f"请求日期：{requested_date}")
+        print(f"预期交易日：{validation.get('expected_trade_date', '不可用')}")
+        print("错误：")
+        for err in validation["errors"]:
+            print(f"  - {err}")
+        for pe in validation.get("position_errors", []):
+            print(f"  - {pe['target']} ({pe['target_type']}): {pe['error']} (actual={pe['actual_date']}, expected={pe['expected_date']})")
+        sys.exit(2)
 
     results = monitor_all_positions_v6(today=requested_date)
 
@@ -38,11 +53,8 @@ def main():
             print(f"{r.get('target', '?'):<8} - 无价格数据")
             continue
         action_emoji = {
-            "HOLD": "🟢",
-            "WATCH": "🟡",
-            "CLEAR": "🔴",
-            "REDUCE_1_3": "🟠",
-            "ADJUST": "🟡",
+            "HOLD": "🟢", "WATCH": "🟡", "CLEAR": "🔴",
+            "REDUCE_1_3": "🟠", "ADJUST": "🟡",
         }.get(r["action"], "⚪")
         alerts_str = "; ".join([a["message"] for a in r.get("alerts", [])])
         price_date = r.get("today", r.get("requested_date", "?"))

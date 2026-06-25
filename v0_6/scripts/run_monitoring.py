@@ -12,8 +12,9 @@ from pathlib import Path
 V0_6_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(V0_6_ROOT))
 
-from v0_6.core import monitor_all_positions_v6, init_schema
+from v0_6.core import monitor_all_positions_v6, init_schema, get_position_summary_all
 from v0_6.core.config import MONITORING_DIR
+from v0_6.core.market_data import validate_market_data
 
 
 def render_monitoring_v6(today: str, results: list) -> str:
@@ -45,7 +46,6 @@ def render_monitoring_v6(today: str, results: list) -> str:
         )
     md.append("")
 
-    # 告警汇总
     red = [r for r in results if r.get("priority") == "RED"]
     yellow = [r for r in results if r.get("priority") == "YELLOW"]
 
@@ -73,6 +73,23 @@ def render_monitoring_v6(today: str, results: list) -> str:
     return "\n".join(md)
 
 
+def render_blocked_monitoring(today: str, expected: str, validation: dict) -> str:
+    md = [f"# ⚠ 监控阻断报告 | {today}", ""]
+    md.append(f"行情数据未就绪，暂停生成持仓操作建议。")
+    md.append("")
+    md.append(f"请求日期：{today}")
+    md.append(f"预期交易日：{expected or '不可用'}")
+    md.append("")
+    for err in validation.get("errors", []):
+        md.append(f"- ❌ {err}")
+    for pe in validation.get("position_errors", []):
+        md.append(f"- ❌ {pe['target']} ({pe['target_type']}): {pe['error']} (actual={pe['actual_date']}, expected={pe['expected_date']})")
+    md.append("")
+    md.append("---")
+    md.append(f"📊 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    return "\n".join(md)
+
+
 def main():
     if len(sys.argv) >= 2:
         today = sys.argv[1]
@@ -81,6 +98,20 @@ def main():
 
     print(f"\n=== 跑 v6 监控报告 | {today} ===\n")
     init_schema()
+
+    # 数据门禁
+    open_positions = get_position_summary_all()
+    validation = validate_market_data(today, open_positions=open_positions)
+    if not validation["ok"]:
+        print("⚠️ 行情数据未就绪，生成监控阻断报告。")
+        for err in validation["errors"]:
+            print(f"  ❌ {err}")
+        md = render_blocked_monitoring(today, validation.get("expected_trade_date", "?"), validation)
+        out_path = MONITORING_DIR / f"monitoring_v6_{today}.md"
+        out_path.write_text(md, encoding="utf-8")
+        print(f"  ⚠ 阻断报告: {out_path}")
+        return 2
+
     results = monitor_all_positions_v6(today)
     print(f"  ✓ 监控 {len(results)} 个持仓")
     red = sum(1 for r in results if r.get("priority") == "RED")

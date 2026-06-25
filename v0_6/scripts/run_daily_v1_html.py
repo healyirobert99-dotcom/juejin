@@ -1080,17 +1080,21 @@ def main():
         print(f"\n❌ 交易日历不可用，无法判断预期交易日")
         return 1
 
-    # 尝试刷新数据（不阻塞，仅当数据明显落后时）
+    # 尝试刷新数据
     if expected:
         from v0_6.core.market_data import get_table_latest_date
         hfq_date = get_table_latest_date("daily_hfq")
         if hfq_date and expected.replace("-", "") > hfq_date:
-            print(f"  ⚠ daily_hfq 最新 {hfq_date}，预期 {expected}，尝试刷新...")
+            print(f"  ⚠ daily_hfq 最新 {hfq_date}，预期 {expected}，刷新中...")
             try:
                 from v0_6.scripts.refresh_market_data import main as refresh_main
                 refresh_main()
             except Exception as e:
-                print(f"  ⚠ 刷新失败（不影响日报生成）: {e}")
+                print(f"  ❌ 刷新失败，进入数据阻断流程: {e}")
+
+    # 获取开放持仓
+    from v0_6.core import get_position_summary_all
+    open_positions = get_position_summary_all()
 
     # 解析信号数据日期
     signal_data_date = get_signal_data_date(requested_date)
@@ -1098,25 +1102,26 @@ def main():
         print(f"\n❌ 未找到 {requested_date} 当日及以前的 daily_hfq 数据，无法生成信号日报。")
         return 1
 
-    # 校验数据完整性
-    validation = validate_market_data(requested_date)
+    # 校验数据完整性（传入开放持仓）
+    validation = validate_market_data(requested_date, open_positions=open_positions)
     if not validation["ok"]:
         print(f"\n⚠️ 行情数据未就绪，生成数据阻断报告。")
         for err in validation["errors"]:
             print(f"  ❌ {err}")
         for warn in validation["warnings"]:
             print(f"  ⚠ {warn}")
+        for pe in validation.get("position_errors", []):
+            print(f"  ❌ {pe.get('target','?')} ({pe.get('target_type','?')}): {pe.get('error','')}")
 
-        # 生成阻断报告仍可继续（信号和监控会显示在阻断报告中）
-        today_signals = get_today_signals(signal_data_date)
-        monitoring = monitor_all_positions_v6(requested_date)
-
-        html = render_blocked_report(requested_date, signal_data_date, validation, today_signals, monitoring)
+        # 阻断报告：不调用正常的 render_html/monitor_all_positions_v6
+        y, m, d = requested_date.split("-")
+        blocked_html = render_blocked_report(requested_date, signal_data_date, validation,
+                                              pd.DataFrame(), [])
         out_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
-        out_path.write_text(html, encoding="utf-8")
-        print(f"  ⚠ 阻断报告已生成: {out_path}")
-        print(f"\n⚠️ 数据未就绪，已生成阻断报告（不含可执行买卖建议）。")
-        return 0
+        out_path.write_text(blocked_html, encoding="utf-8")
+        print(f"  ⚠ 阻断报告已生成（不含可执行买卖建议）: {out_path}")
+        print(f"\n⚠️ 数据未就绪，请先完成行情数据更新。")
+        return 2
 
     date_note = f" (数据截至 {signal_data_date})" if signal_data_date != requested_date else ""
     print(f"\n=== 掘金日报 V1.0 HTML | {requested_date}{date_note} ===\n")

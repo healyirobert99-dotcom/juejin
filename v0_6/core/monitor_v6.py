@@ -9,7 +9,7 @@ v6 实盘监控模块 — 掘金信号持仓监控
 
 价格路由原则：
   target_type=ETF  → 读取 etf_daily 表（ETF 自身收盘价）
-  target_type=STOCK → 读取 daily_hfq 表（个股后复权价）
+  target_type=STOCK → 读取 stock_daily_raw 表（个股未复权收盘价）
   target_type=INDUSTRY → 不计算真实盈亏（行业不可执行）
   target_type=未知  → 返回明确错误
 """

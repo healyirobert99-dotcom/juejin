@@ -49,6 +49,9 @@ def db_with_data(tmp_path):
     con.execute("CREATE TABLE daily_hfq (ts_code TEXT, trade_date TEXT, close REAL)")
     con.execute("CREATE TABLE etf_daily (ts_code TEXT, trade_date TEXT, close REAL)")
     con.execute("CREATE TABLE stock_daily_raw (ts_code TEXT, trade_date TEXT, close REAL)")
+    con.execute("CREATE TABLE market_calendar (cal_date TEXT PRIMARY KEY, is_open INTEGER)")
+    for d in range(19, 27):
+        con.execute("INSERT INTO market_calendar VALUES (?, 1)", (f"202606{d:02d}",))
     for code in ["000001.SZ", "600000.SH"]:
         for d in [20260619, 20260620, 20260623, 20260624, 20260625, 20260626]:
             con.execute("INSERT INTO daily_hfq VALUES (?, ?, ?)",
@@ -72,6 +75,9 @@ def db_etf_newer(tmp_path):
     con.execute("CREATE TABLE daily_hfq (ts_code TEXT, trade_date TEXT, close REAL)")
     con.execute("CREATE TABLE etf_daily (ts_code TEXT, trade_date TEXT, close REAL)")
     con.execute("CREATE TABLE stock_daily_raw (ts_code TEXT, trade_date TEXT, close REAL)")
+    con.execute("CREATE TABLE market_calendar (cal_date TEXT PRIMARY KEY, is_open INTEGER)")
+    for d in range(23, 27):
+        con.execute("INSERT INTO market_calendar VALUES (?, 1)", (f"202606{d:02d}",))
     for code in ["000001.SZ"]:
         for d in [20260623, 20260624, 20260625]:
             con.execute("INSERT INTO daily_hfq VALUES (?, ?, ?)",
@@ -252,6 +258,9 @@ def db_sparse(tmp_path):
     con.execute("CREATE TABLE daily_hfq (ts_code TEXT, trade_date TEXT, close REAL)")
     con.execute("CREATE TABLE etf_daily (ts_code TEXT, trade_date TEXT, close REAL)")
     con.execute("CREATE TABLE stock_daily_raw (ts_code TEXT, trade_date TEXT, close REAL)")
+    con.execute("CREATE TABLE market_calendar (cal_date TEXT PRIMARY KEY, is_open INTEGER)")
+    for d in range(20, 24):
+        con.execute("INSERT INTO market_calendar VALUES (?, 1)", (f"202606{d:02d}",))
     for code in ["512800.SH"]:
         for d in [20260620, 20260621, 20260622]:
             con.execute("INSERT INTO etf_daily VALUES (?, ?, ?)",
@@ -263,6 +272,12 @@ def db_sparse(tmp_path):
 
 def test_auto_calc_rules_sparse_data_returns_price_no_progress(monkeypatch, db_sparse):
     """1-4 条历史行情时返回 latest_price 和 as_of，但不生成进度桶"""
+    import sqlite3
+    # 补充 daily_hfq（全局校验需要）
+    con = sqlite3.connect(str(db_sparse))
+    con.execute("INSERT INTO daily_hfq (ts_code, trade_date, close) VALUES ('000001.SZ', '20260622', 10.0)")
+    con.commit()
+    con.close()
     from v0_6.scripts.trade_form_server import auto_calc_rules
     _patch_stock_db(monkeypatch, db_sparse)
 
