@@ -225,19 +225,27 @@ def test_close_per_row_pnl():
 
 
 def test_monitor_aggregated():
-    """监控读取净持仓（汇总后一行）"""
+    """监控读取净持仓（汇总后一行），且保留首笔 BUY 的原始参数"""
     _setup()
     add_trade(target="512800", target_type="ETF", target_name="银行ETF",
-              action="BUY", amount=780, price=0.78, shares=1000, trade_date="2026-06-01")
+              action="BUY", amount=780, price=0.78, shares=1000, trade_date="2026-06-01",
+              progress=0.0, progress_bucket="极早期", stop_threshold=-0.18, take_profit_threshold=0.30,
+              stop_price=0.6396, take_profit_price=1.0140)
     add_trade(target="512800", target_type="ETF", target_name="银行ETF",
-              action="ADD", amount=410, price=0.82, shares=500, trade_date="2026-06-10")
+              action="ADD", amount=410, price=0.82, shares=500, trade_date="2026-06-10",
+              progress=0.15, progress_bucket="早期", stop_threshold=-0.15, take_profit_threshold=0.30)
 
     results = monitor_all_positions_v6("2026-06-24")
     # 同一个 ETF 只显示一行
     etf_rows = [r for r in results if r.get("target") == "512800" and "error" not in r]
     assert len(etf_rows) == 1, f"同一 ETF 应只有一行监控，实 {len(etf_rows)}"
-    # 监控应保留原始进度桶和阈值
-    assert etf_rows[0].get("progress_bucket_at_entry") is not None, "监控应保留 progress_bucket"
+    # 监控参数必须来自最早那笔（极早期 0.0），不是来自 MIN 聚合或 ADD
+    assert etf_rows[0].get("progress_bucket_at_entry") == "极早期", (
+        f"应保留首笔 BUY 的极早期，实 {etf_rows[0].get('progress_bucket_at_entry')}"
+    )
+    assert abs(etf_rows[0].get("progress_at_entry", 1) - 0.0) < 0.001, (
+        "progress_at_entry 应为 0.0，不是 0.05"
+    )
 
 
 def test_rebuy_after_sell_is_isolated():

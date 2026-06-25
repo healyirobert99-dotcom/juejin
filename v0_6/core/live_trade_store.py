@@ -519,12 +519,7 @@ def get_position_summary_all() -> List[dict]:
             SUM(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN amount ELSE 0 END) AS buy_amount,
             SUM(CASE WHEN action IN ('REDUCE', 'SELL') AND closed = 0 THEN shares ELSE 0 END) AS sell_shares,
             MIN(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN trade_date END) AS first_buy,
-            MAX(CASE WHEN action IN ('REDUCE', 'SELL') AND closed = 0 THEN 1 ELSE 0 END) AS has_reduced_in_cycle,
-            -- 从最早未平仓的 BUY/ADD 中取监控参数
-            MIN(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN progress_bucket END) AS first_bucket,
-            MIN(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN stop_threshold END) AS first_stop,
-            MIN(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN take_profit_threshold END) AS first_tp,
-            MIN(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN progress_at_entry END) AS first_progress
+            MAX(CASE WHEN action IN ('REDUCE', 'SELL') AND closed = 0 THEN 1 ELSE 0 END) AS has_reduced_in_cycle
         FROM live_trades
         GROUP BY target, target_type
         HAVING buy_shares - sell_shares > 0
@@ -542,6 +537,22 @@ def get_position_summary_all() -> List[dict]:
         if net_shares <= 0:
             continue
         avg_cost = buy_amount / buy_shares if buy_shares > 0 else 0
+
+        # 取最早一笔未平仓 BUY/ADD 的监控参数（同一条记录）
+        con2 = sqlite3.connect(str(DB_PATH))
+        first = con2.execute(
+            "SELECT progress_bucket, stop_threshold, take_profit_threshold, progress_at_entry "
+            "FROM live_trades "
+            "WHERE target = ? AND action IN ('BUY', 'ADD') AND closed = 0 "
+            "ORDER BY trade_id ASC LIMIT 1",
+            (r["target"],),
+        ).fetchone()
+        con2.close()
+        bucket = first[0] if first else None
+        stop = first[1] if first else None
+        tp = first[2] if first else None
+        prog = first[3] if first else None
+
         results.append({
             "target": r["target"],
             "target_type": r["target_type"],
@@ -550,10 +561,10 @@ def get_position_summary_all() -> List[dict]:
             "avg_cost": avg_cost,
             "first_buy": r["first_buy"],
             "has_reduced": bool(r["has_reduced_in_cycle"]),
-            "progress_bucket": r["first_bucket"],
-            "stop_threshold": r["first_stop"],
-            "take_profit_threshold": r["first_tp"],
-            "progress_at_entry": r["first_progress"],
+            "progress_bucket": bucket,
+            "stop_threshold": stop,
+            "take_profit_threshold": tp,
+            "progress_at_entry": prog,
         })
     return results
 
