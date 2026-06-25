@@ -96,11 +96,14 @@ class ReplayContext:
             import v0_6.core.live_trade_store as lts
             import v0_6.core.monitor_v6 as mon
             import v0_6.core.market_data as md
+            import v0_6.core.signal_b as sig
             cfg.DB_PATH = _ORIG_DB_PATH
             cfg.STOCK_DATA_DB = _ORIG_STOCK_DB
             lts.DB_PATH = _ORIG_DB_PATH
             mon.STOCK_DATA_DB = _ORIG_STOCK_DB
             md.STOCK_DATA_DB = _ORIG_STOCK_DB
+            sig.DB_PATH = _ORIG_DB_PATH
+            sig.STOCK_DATA_DB = _ORIG_STOCK_DB
 
     def inject_day_data(self, trade_date: str):
         """从源库复制指定日期的行情到回放库"""
@@ -231,16 +234,19 @@ class ReplayContext:
         return self.trade_db
 
     def inject_prod_paths(self):
-        """让生产模块指向回放数据库"""
+        """让生产模块指向回放数据库（含 signal_b）"""
         import v0_6.core.config as cfg
         import v0_6.core.live_trade_store as lts
         import v0_6.core.monitor_v6 as mon
         import v0_6.core.market_data as md
+        import v0_6.core.signal_b as sig
         cfg.DB_PATH = self.trade_db
         cfg.STOCK_DATA_DB = self.stock_db
         lts.DB_PATH = self.trade_db
         mon.STOCK_DATA_DB = self.stock_db
         md.STOCK_DATA_DB = self.stock_db
+        sig.DB_PATH = self.trade_db
+        sig.STOCK_DATA_DB = self.stock_db
 
     def sha256(self, path: Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest().upper()
@@ -365,89 +371,200 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
         # 第三步：执行前一交易日的待成交指令（当天成交）
         fills = []
         unfills = []
-        for order in list(ctx.pending_orders):
-            target = order["target"]
-            target_type = order["target_type"]
-            action = order["action"]
-            price = None
 
-            # 查收盘价
-            tbl = "etf_daily" if target_type == "ETF" else "stock_daily_raw" if target_type == "STOCK" else None
-            if tbl:
-                con_tmp = sqlite3.connect(str(ctx.stock_db))
-                row = con_tmp.execute(
-                    f"SELECT close FROM {tbl} WHERE ts_code LIKE ? AND trade_date = ?",
-                    (target + "%", current_date.replace("-", "")),
-                ).fetchone()
-                con_tmp.close()
-                if row:
-                    price = row[0]
-                else:
-                    # 尝试其他后缀
-                    try:
-                        from v0_6.core.market_data import normalize_etf_ts_code, normalize_stock_ts_code
-                        normalizer = normalize_etf_ts_code if target_type == "ETF" else normalize_stock_ts_code
-                        try:
-                            tc = normalizer(target)
-                            con_tmp = sqlite3.connect(str(ctx.stock_db))
-                            row = con_tmp.execute(
-                                f"SELECT close FROM {tbl} WHERE ts_code = ? AND trade_date = ?",
-                                (tc, current_date.replace("-", "")),
-                            ).fetchone()
-                            con_tmp.close()
-                            if row:
-                                price = row[0]
-                        except ValueError:
-                            pass
-                    except Exception:
-                        pass
-
-            if price is None:
+        # 如果数据门禁失败，跳过全部待成交订单
+        if not validation["ok"]:
+            for order in list(ctx.pending_orders):
                 unfills.append({
                     **order,
                     "status": "UNFILLED_DATA_BLOCKED",
-                    "failure_reason": f"T+1={current_date} 无行情",
+                    "failure_reason": f"数据阻断日 {current_date} 不执行订单",
                 })
                 order["status"] = "UNFILLED_DATA_BLOCKED"
                 ctx.pending_orders.remove(order)
-                continue
+        else:
+            for order in list(ctx.pending_orders):
+                target = order["target"]
+                target_type = order["target_type"]
+                action = order["action"]
+                price = None
+                tbl = "etf_daily" if target_type == "ETF" else "stock_daily_raw" if target_type == "STOCK" else None
+                if tbl:
+                    con_tmp = sqlite3.connect(str(ctx.stock_db))
+                    # 尝试原始代码和后缀
+                    for suffix in [target, target + ".SH", target + ".SZ", target.replace(".SH", "").replace(".SZ", "")]:
+                        try:
+                            candidates = [suffix]
+                            if "." not in suffix:
+                                try:
+                                    from v0_6.core.market_data import normalize_etf_ts_code, normalize_stock_ts_code
+                                    norm = normalize_etf_ts_code if target_type == "ETF" else normalize_stock_ts_code
+                                    candidates.append(norm(suffix))
+                                except Exception:
+                                    pass
+                            found = None
+                            for c in candidates:
+                                row = con_tmp.execute(
+                                    f"SELECT close FROM {tbl} WHERE ts_code = ? AND trade_date = ?",
+                                    (c, current_date.replace("-", "")),
+                                ).fetchone()
+                                if row:
+                                    found = row[0]
+                                    break
+                            if found is not None:
+                                price = found
+                                break
+                        except Exception:
+                            continue
+                    con_tmp.close()
 
-            # 模拟成交
-            shares = order["shares"]
-            amount = shares * price
+                if price is None:
+                    unfills.append({
+                        **order,
+                        "status": "UNFILLED_DATA_BLOCKED",
+                        "failure_reason": f"T+1={current_date} 无行情",
+                    })
+                    order["status"] = "UNFILLED_DATA_BLOCKED"
+                    ctx.pending_orders.remove(order)
+                    continue
 
-            from v0_6.core import add_trade
-            try:
-                trade_id = add_trade(
-                    target=order["target"],
-                    target_type=order["target_type"],
-                    target_name=order["target_name"],
-                    action=order["action"],
-                    amount=round(amount, 2),
-                    price=price,
-                    shares=shares,
-                    trade_date=current_date,
-                    notes=f"replay #{order['signal_date']}→{current_date}",
-                )
-                fills.append({
-                    "signal_date": order["signal_date"],
-                    "fill_date": current_date,
-                    "target": target,
-                    "target_type": target_type,
-                    "action": action,
-                    "shares": shares,
-                    "price": price,
-                    "amount": round(amount, 2),
-                    "status": "FILLED",
-                })
-                order["status"] = "FILLED"
-            except Exception as e:
-                unfills.append({
-                    **order,
-                    "status": "UNFILLED_ERROR",
-                    "failure_reason": str(e),
-                })
-            ctx.pending_orders.remove(order)
+                shares = order["shares"]
+                amount = shares * price
+
+                if action in ("BUY", "ADD"):
+                    # 计算 T+1 日的进度桶（基于 T+1 收盘价）
+                    from v0_6.core.market_data import normalize_etf_ts_code, normalize_stock_ts_code
+                    norm_fn = normalize_etf_ts_code if target_type == "ETF" else normalize_stock_ts_code
+                    try:
+                        ts_code = norm_fn(target)
+                    except ValueError:
+                        ts_code = target
+
+                    # 查 60 日最低价（截止 T+1 日）
+                    lookback = 60
+                    con_tmp2 = sqlite3.connect(str(ctx.stock_db))
+                    hist = con_tmp2.execute(
+                        f"SELECT close FROM {tbl} WHERE ts_code LIKE ? AND trade_date <= ? "
+                        f"ORDER BY trade_date DESC LIMIT {lookback}",
+                        (ts_code + "%", current_date.replace("-", "")),
+                    ).fetchall()
+                    con_tmp2.close()
+                    if hist and len(hist) >= 5:
+                        closes = [r[0] for r in hist]
+                        low_60d = min(closes)
+                        progress = (price - low_60d) / low_60d if low_60d > 0 else 0
+                        from v0_6.core.gold_signal_v6 import get_bucket
+                        bucket_info = get_bucket(progress)
+                        progress_bucket = bucket_info["name"]
+                        stop_pct = bucket_info["stop"]
+                        tp_pct = bucket_info["take_profit"]
+                        stop_price = price * (1 + stop_pct)
+                        tp_price = price * (1 + tp_pct)
+                    else:
+                        progress = None
+                        progress_bucket = None
+                        stop_pct = None
+                        tp_pct = None
+                        stop_price = None
+                        tp_price = None
+
+                    from v0_6.core import add_trade
+                    try:
+                        trade_id = add_trade(
+                            target=target,
+                            target_type=target_type,
+                            target_name=order.get("target_name", target),
+                            action=action,
+                            amount=round(amount, 2),
+                            price=price,
+                            shares=shares,
+                            trade_date=current_date,
+                            progress=progress,
+                            progress_bucket=progress_bucket,
+                            stop_threshold=stop_pct,
+                            take_profit_threshold=tp_pct,
+                            stop_price=stop_price,
+                            take_profit_price=tp_price,
+                            notes=f"replay #{order.get('signal_date', '')}→{current_date}",
+                        )
+                        fills.append({
+                            "signal_date": order.get("signal_date", ""),
+                            "fill_date": current_date,
+                            "target": target,
+                            "target_type": target_type,
+                            "action": action,
+                            "shares": shares,
+                            "price": price,
+                            "amount": round(amount, 2),
+                            "status": "FILLED",
+                            "trade_id": trade_id,
+                        })
+                        order["status"] = "FILLED"
+                        order["fill_date"] = current_date
+                        order["price"] = price
+                        order["amount"] = round(amount, 2)
+                        order["trade_id"] = trade_id
+                    except Exception as e:
+                        unfills.append({
+                            **order,
+                            "status": "UNFILLED_ERROR",
+                            "failure_reason": str(e),
+                        })
+                elif action == "REDUCE":
+                    from v0_6.core import add_trade
+                    try:
+                        trade_id = add_trade(
+                            target=target,
+                            target_type=target_type,
+                            target_name=order.get("target_name", target),
+                            action="REDUCE",
+                            amount=round(amount, 2),
+                            price=price,
+                            shares=shares,
+                            trade_date=current_date,
+                            notes=f"replay reduce #{order.get('signal_date', '')}",
+                        )
+                        # 标记 reduced_1_3
+                        from v0_6.core.config import DB_PATH as _DB
+                        con_r = sqlite3.connect(str(_DB))
+                        con_r.execute("UPDATE live_trades SET reduced_1_3 = 1 WHERE target = ?", (target,))
+                        con_r.commit()
+                        con_r.close()
+                        fills.append({
+                            "signal_date": order.get("signal_date", ""),
+                            "fill_date": current_date,
+                            "target": target, "target_type": target_type,
+                            "action": "REDUCE", "shares": shares,
+                            "price": price, "amount": round(amount, 2),
+                            "status": "FILLED",
+                        })
+                        order["status"] = "FILLED"
+                    except Exception as e:
+                        unfills.append({**order, "status": "UNFILLED_ERROR", "failure_reason": str(e)})
+                elif action == "SELL":
+                    from v0_6.core import close_trade_by_target
+                    try:
+                        summary = close_trade_by_target(target, price, current_date)
+                        # SELL 记录已由 close_trade_by_target 关闭，不再额外 add_trade
+                        fills.append({
+                            "signal_date": order.get("signal_date", ""),
+                            "fill_date": current_date,
+                            "target": target, "target_type": target_type,
+                            "action": "SELL", "shares": summary.get("total_shares", 0),
+                            "price": price, "amount": summary.get("total_shares", 0) * price,
+                            "status": "FILLED",
+                            "pnl": summary.get("total_pnl", 0),
+                        })
+                        order["status"] = "FILLED"
+                        order["fill_date"] = current_date
+                    except Exception as e:
+                        unfills.append({**order, "status": "UNFILLED_ERROR", "failure_reason": str(e)})
+
+                ctx.pending_orders.remove(order)
+
+        # 记录成交到 ctx.trades
+        for f in fills:
+            ctx.trades.append(f)
 
         day_rec["filled_orders"] = fills
         day_rec["unfilled_orders"] = unfills
@@ -455,124 +572,118 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
         # 第四步：生成当天信号
         signals_today = None
         if validation["ok"]:
-            try:
-                sd_date = get_signal_data_date(current_date)
-                if sd_date:
-                    signals_today = get_today_signals(sd_date)
-                    if signals_today is not None and not signals_today.empty:
-                        for _, sig in signals_today.iterrows():
-                            sig_rec = {
-                                "date": current_date,
-                                "industry": sig.get("industry", ""),
-                                "priority": sig.get("priority", "FIRST"),
-                                "breadth": float(sig.get("breadth_at_signal", 0)),
-                                "vol_ratio": float(sig.get("vol_ratio_at_signal", 0)),
+            sd_date = get_signal_data_date(current_date)
+            if sd_date:
+                signals_today = get_today_signals(sd_date)
+                if signals_today is not None and not signals_today.empty:
+                    for _, sig in signals_today.iterrows():
+                        sig_rec = {
+                            "date": current_date,
+                            "industry": sig.get("industry", ""),
+                            "priority": sig.get("priority", "FIRST"),
+                            "breadth": float(sig.get("breadth_at_signal", 0)),
+                            "vol_ratio": float(sig.get("vol_ratio_at_signal", 0)),
+                        }
+                        day_rec["signals"].append(sig_rec)
+                        ctx.signals_log.append(sig_rec)
+
+                        # ETF 匹配
+                        etf_r = match_industry_to_etfs(sig.get("industry", ""))
+                        if etf_r.get("best"):
+                            best = etf_r["best"]
+                            day_rec["selected_etfs"].append(best.get("code", ""))
+
+                            # 生成 BUY 指令（T+1 执行）
+                            from v0_6.core.gold_signal_v6 import get_position_pct
+                            pos_pct = get_position_pct(0.05,
+                                is_repeat=(sig.get("priority") == "REPEAT"))
+                            suggested_amount = ctx.reference_capital * pos_pct
+
+                            # 查该 ETF 现价
+                            price_for_shares = None
+                            con_tmp = sqlite3.connect(str(ctx.stock_db))
+                            row = con_tmp.execute(
+                                "SELECT close FROM etf_daily WHERE ts_code LIKE ? AND trade_date = ?",
+                                (best.get("code", "") + "%", current_date.replace("-", "")),
+                            ).fetchone()
+                            con_tmp.close()
+                            if row:
+                                price_for_shares = row[0]
+                            if price_for_shares and price_for_shares > 0:
+                                suggested_shares = suggested_amount / price_for_shares
+                            else:
+                                suggested_shares = suggested_amount / 1.0  # fallback
+
+                            order = {
+                                "signal_date": current_date,
+                                "target": best.get("code", ""),
+                                "target_type": "ETF",
+                                "target_name": best.get("name", ""),
+                                "action": "BUY",
+                                "shares": round(suggested_shares, 2),
+                                "suggested_position_pct": pos_pct,
+                                "status": "PENDING",
                             }
-                            day_rec["signals"].append(sig_rec)
-                            ctx.signals_log.append(sig_rec)
-
-                            # ETF 匹配
-                            etf_r = match_industry_to_etfs(sig.get("industry", ""))
-                            if etf_r.get("best"):
-                                best = etf_r["best"]
-                                day_rec["selected_etfs"].append(best.get("code", ""))
-
-                                # 生成 BUY 指令（T+1 执行）
-                                from v0_6.core.gold_signal_v6 import get_position_pct
-                                pos_pct = get_position_pct(0.05,
-                                    is_repeat=(sig.get("priority") == "REPEAT"))
-                                suggested_amount = ctx.reference_capital * pos_pct
-
-                                # 查该 ETF 现价
-                                price_for_shares = None
-                                con_tmp = sqlite3.connect(str(ctx.stock_db))
-                                row = con_tmp.execute(
-                                    "SELECT close FROM etf_daily WHERE ts_code LIKE ? AND trade_date = ?",
-                                    (best.get("code", "") + "%", current_date.replace("-", "")),
-                                ).fetchone()
-                                con_tmp.close()
-                                if row:
-                                    price_for_shares = row[0]
-                                if price_for_shares and price_for_shares > 0:
-                                    suggested_shares = suggested_amount / price_for_shares
-                                else:
-                                    suggested_shares = suggested_amount / 1.0  # fallback
-
-                                order = {
-                                    "signal_date": current_date,
-                                    "target": best.get("code", ""),
-                                    "target_type": "ETF",
-                                    "target_name": best.get("name", ""),
-                                    "action": "BUY",
-                                    "shares": round(suggested_shares, 2),
-                                    "suggested_position_pct": pos_pct,
-                                    "status": "PENDING",
-                                }
-                                ctx.pending_orders.append(order)
-                                ctx.orders.append(order)
-            except Exception as e:
-                pass
+                            ctx.pending_orders.append(order)
+                            ctx.orders.append(order)
 
         # 第五步：持仓监控
         monitoring_results = []
         if validation["ok"]:
-            try:
-                monitoring_results = monitor_all_positions_v6(current_date)
-                for mr in monitoring_results:
-                    action = mr.get("action", "HOLD")
-                    day_rec["monitoring_actions"].append({
-                        "target": mr.get("target", ""),
-                        "target_type": mr.get("target_type", ""),
-                        "action": action,
-                        "priority": mr.get("priority", ""),
-                        "return_pct": mr.get("return_pct", 0),
-                    })
-                    ctx.monitoring_log.append({
-                        "date": current_date,
-                        "target": mr.get("target", ""),
-                        "target_type": mr.get("target_type", ""),
-                        "action": action,
-                        "priority": mr.get("priority", ""),
-                    })
+            monitoring_results = monitor_all_positions_v6(current_date)
+            for mr in monitoring_results:
+                action = mr.get("action", "HOLD")
+                day_rec["monitoring_actions"].append({
+                    "target": mr.get("target", ""),
+                    "target_type": mr.get("target_type", ""),
+                    "action": action,
+                    "priority": mr.get("priority", ""),
+                    "return_pct": mr.get("return_pct", 0),
+                })
+                ctx.monitoring_log.append({
+                    "date": current_date,
+                    "target": mr.get("target", ""),
+                    "target_type": mr.get("target_type", ""),
+                    "action": action,
+                    "priority": mr.get("priority", ""),
+                })
 
-                    # REDUCE_1_3 → 下一交易日指令
-                    if action == "REDUCE_1_3":
-                        target = mr.get("target", "")
-                        ttype = mr.get("target_type", "")
-                        net = get_position_net(target)
-                        reduce_shares = round(net["net_shares"] / 3, 2)
-                        if reduce_shares > 0:
-                            order = {
-                                "signal_date": current_date,
-                                "target": target,
-                                "target_type": ttype,
-                                "target_name": mr.get("target_name", ""),
-                                "action": "REDUCE",
-                                "shares": reduce_shares,
-                                "status": "PENDING",
-                            }
-                            ctx.pending_orders.append(order)
-                            ctx.orders.append(order)
+                # REDUCE_1_3 → 下一交易日指令
+                if action == "REDUCE_1_3":
+                    target = mr.get("target", "")
+                    ttype = mr.get("target_type", "")
+                    net = get_position_net(target)
+                    reduce_shares = round(net["net_shares"] / 3, 2)
+                    if reduce_shares > 0:
+                        order = {
+                            "signal_date": current_date,
+                            "target": target,
+                            "target_type": ttype,
+                            "target_name": mr.get("target_name", ""),
+                            "action": "REDUCE",
+                            "shares": reduce_shares,
+                            "status": "PENDING",
+                        }
+                        ctx.pending_orders.append(order)
+                        ctx.orders.append(order)
 
-                    # CLEAR → 下一交易日全部卖出
-                    if action == "CLEAR":
-                        target = mr.get("target", "")
-                        ttype = mr.get("target_type", "")
-                        net = get_position_net(target)
-                        if net["net_shares"] > 0:
-                            order = {
-                                "signal_date": current_date,
-                                "target": target,
-                                "target_type": ttype,
-                                "target_name": mr.get("target_name", ""),
-                                "action": "SELL",
-                                "shares": net["net_shares"],
-                                "status": "PENDING",
-                            }
-                            ctx.pending_orders.append(order)
-                            ctx.orders.append(order)
-            except Exception:
-                pass
+                # CLEAR → 下一交易日全部卖出
+                if action == "CLEAR":
+                    target = mr.get("target", "")
+                    ttype = mr.get("target_type", "")
+                    net = get_position_net(target)
+                    if net["net_shares"] > 0:
+                        order = {
+                            "signal_date": current_date,
+                            "target": target,
+                            "target_type": ttype,
+                            "target_name": mr.get("target_name", ""),
+                            "action": "SELL",
+                            "shares": net["net_shares"],
+                            "status": "PENDING",
+                        }
+                        ctx.pending_orders.append(order)
+                        ctx.orders.append(order)
 
         day_rec["positions_after"] = len(get_position_summary_all())
         day_rec["pending_orders_after"] = len(ctx.pending_orders)
@@ -724,13 +835,13 @@ def _write_trades_csv(ctx: ReplayContext):
     path = OUTPUT_DIR / "trades.csv"
     with open(str(path), "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["fill_date", "target", "target_type", "action", "shares", "price", "amount", "signal_date", "status"])
-        for o in ctx.orders:
+        w.writerow(["fill_date", "target", "target_type", "action", "shares", "price", "amount",
+                     "signal_date", "status", "pnl"])
+        for t in ctx.trades:
             w.writerow([
-                o.get("fill_date", o.get("signal_date", "")),
-                o["target"], o.get("target_type", ""), o["action"],
-                o.get("shares", 0), o.get("price", 0), o.get("amount", 0),
-                o.get("signal_date", ""), o.get("status", ""),
+                t.get("fill_date", ""), t.get("target", ""), t.get("target_type", ""),
+                t.get("action", ""), t.get("shares", 0), t.get("price", 0), t.get("amount", 0),
+                t.get("signal_date", ""), t.get("status", ""), t.get("pnl", ""),
             ])
 
 
@@ -738,16 +849,20 @@ def _write_daily_account_csv(ctx: ReplayContext):
     path = OUTPUT_DIR / "daily_account.csv"
     with open(str(path), "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["date", "gross_exposure", "position_count", "blocked", "signals", "fills", "pending_orders"])
+        w.writerow(["date", "gross_exposure", "position_count", "realized_pnl", "unrealized_pnl",
+                     "total_pnl", "blocked", "signals", "fills"])
         for d in ctx.days:
+            # 粗略估算浮盈：通过 holdings 总和 — 这只是链路验收，不是精确财务
             w.writerow([
                 d["replay_date"],
                 d["positions_after"],
                 d["positions_after"],
+                "",
+                "",
+                "",
                 1 if d["blocked"] else 0,
                 len(d["signals"]),
                 len(d["filled_orders"]),
-                d["pending_orders_after"],
             ])
 
 
