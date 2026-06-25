@@ -495,11 +495,16 @@ def get_position_summary_all() -> List[dict]:
 
     返回每个 target 一条记录，包含：
     - target, target_type, target_name
-    - total_shares: 净股数（BUY+ADD 减 REDUCE+SELL）
+    - total_shares: 净股数（BUY+ADD 减 REDUCE+SELL，仅统计当前未平仓周期）
     - avg_cost: 金额加权平均成本
     - first_buy: 首次买入日期
-    - has_reduced: 该标的是否曾减仓（任意行有 reduced_1_3）
+    - has_reduced: 当前周期是否曾减仓
+    - 监控用参数（取自首笔 BUY/ADD）：progress_bucket, stop_threshold, take_profit_threshold
     净持仓 ≤ 0 的标的不返回。
+
+    注意：
+    - REDUCE/SELL 也检查 closed=0，确保上一周期的卖出不扣减新的一轮持仓
+    - has_reduced 只检查当前未平仓周期
     """
     init_schema()
     con = sqlite3.connect(str(DB_PATH))
@@ -512,9 +517,14 @@ def get_position_summary_all() -> List[dict]:
             MIN(target_name) AS target_name,
             SUM(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN shares ELSE 0 END) AS buy_shares,
             SUM(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN amount ELSE 0 END) AS buy_amount,
-            SUM(CASE WHEN action IN ('REDUCE', 'SELL') THEN shares ELSE 0 END) AS sell_shares,
+            SUM(CASE WHEN action IN ('REDUCE', 'SELL') AND closed = 0 THEN shares ELSE 0 END) AS sell_shares,
             MIN(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN trade_date END) AS first_buy,
-            MAX(CASE WHEN reduced_1_3 = 1 THEN 1 ELSE 0 END) AS has_reduced
+            MAX(CASE WHEN action IN ('REDUCE', 'SELL') AND closed = 0 THEN 1 ELSE 0 END) AS has_reduced_in_cycle,
+            -- 从最早未平仓的 BUY/ADD 中取监控参数
+            MIN(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN progress_bucket END) AS first_bucket,
+            MIN(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN stop_threshold END) AS first_stop,
+            MIN(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN take_profit_threshold END) AS first_tp,
+            MIN(CASE WHEN action IN ('BUY', 'ADD') AND closed = 0 THEN progress_at_entry END) AS first_progress
         FROM live_trades
         GROUP BY target, target_type
         HAVING buy_shares - sell_shares > 0
@@ -539,7 +549,11 @@ def get_position_summary_all() -> List[dict]:
             "total_shares": net_shares,
             "avg_cost": avg_cost,
             "first_buy": r["first_buy"],
-            "has_reduced": bool(r["has_reduced"]),
+            "has_reduced": bool(r["has_reduced_in_cycle"]),
+            "progress_bucket": r["first_bucket"],
+            "stop_threshold": r["first_stop"],
+            "take_profit_threshold": r["first_tp"],
+            "progress_at_entry": r["first_progress"],
         })
     return results
 
@@ -568,6 +582,7 @@ def close_trade_by_target(target: str, close_price: float, close_date: str) -> d
     """平仓某 target 的全部未平仓 BUY/ADD 记录
 
     - 每行按各自买入价计算 close_pnl_pct
+    - 同时关闭该 target 的 REDUCE/SELL 记录，避免影响下一轮持仓
     - 没有未平仓记录时抛出 ValueError（拒绝重复清仓）
     - 返回汇总：{target, total_shares, total_pnl, avg_pnl_pct}
     """
@@ -585,8 +600,8 @@ def close_trade_by_target(target: str, close_price: float, close_date: str) -> d
     total_pnl = 0
     for row in open_rows:
         entry_price = row[1]
-        pnl_pct = (close_price - entry_price) / entry_price if entry_price else 0
         shares = row[2]
+        pnl_pct = (close_price - entry_price) / entry_price if entry_price else 0
         pnl_amount = (close_price - entry_price) * shares
         con.execute(
             "UPDATE live_trades SET closed = 1, close_date = ?, close_price = ?, close_pnl_pct = ? WHERE trade_id = ?",
@@ -595,9 +610,17 @@ def close_trade_by_target(target: str, close_price: float, close_date: str) -> d
         total_shares += shares
         total_pnl += pnl_amount
 
+    # 同时关闭该 target 的所有未关闭 REDUCE/SELL（避免影响下轮持仓）
+    con.execute(
+        "UPDATE live_trades SET closed = 1, close_date = ? "
+        "WHERE target = ? AND action IN ('REDUCE', 'SELL') AND closed = 0",
+        (close_date, target),
+    )
+
     con.commit()
     con.close()
-    avg_entry = total_pnl / total_shares + close_price if total_shares > 0 else 0
+    # avg_entry = close_price - (total_pnl / total_shares)
+    avg_entry = close_price - (total_pnl / total_shares) if total_shares > 0 else 0
     avg_pnl_pct = (close_price - avg_entry) / avg_entry if avg_entry else 0
     return {
         "target": target,

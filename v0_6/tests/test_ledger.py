@@ -179,8 +179,15 @@ def test_reduce_marks_target_level():
     _setup()
     add_trade(target="512800", target_type="ETF", target_name="银行ETF",
               action="BUY", amount=780, price=0.78, shares=1000, trade_date="2026-06-01")
-    # 模拟 REDUCE（直接标记全部）
-    con = sqlite3.connect(_TMP_DB)
+    # 模拟 REDUCE 行（标记 reduced_1_3 + 实际 REDUCE 记录）
+    con = sqlite3.connect(lts.DB_PATH)
+    # 插入一条 REDUCE 记录
+    con.execute(
+        "INSERT INTO live_trades (target, target_type, target_name, action, amount, price, shares, trade_date) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("512800", "ETF", "银行ETF", "REDUCE", 200, 0.80, 250, "2026-06-15"),
+    )
+    # 标记原 BUY 为已减仓
     con.execute("UPDATE live_trades SET reduced_1_3 = 1 WHERE target = '512800'")
     con.commit()
     con.close()
@@ -229,3 +236,46 @@ def test_monitor_aggregated():
     # 同一个 ETF 只显示一行
     etf_rows = [r for r in results if r.get("target") == "512800" and "error" not in r]
     assert len(etf_rows) == 1, f"同一 ETF 应只有一行监控，实 {len(etf_rows)}"
+    # 监控应保留原始进度桶和阈值
+    assert etf_rows[0].get("progress_bucket_at_entry") is not None, "监控应保留 progress_bucket"
+
+
+def test_rebuy_after_sell_is_isolated():
+    """清仓后再次买入，上一轮记录不扣减新持仓"""
+    _setup()
+    # 第一轮：买入 → 清仓
+    add_trade(target="512800", target_type="ETF", target_name="银行ETF",
+              action="BUY", amount=780, price=0.78, shares=1000, trade_date="2026-06-01")
+    close_trade_by_target("512800", 0.85, "2026-06-30")
+
+    # 第二轮：再次买入
+    add_trade(target="512800", target_type="ETF", target_name="银行ETF",
+              action="BUY", amount=850, price=0.85, shares=1000, trade_date="2026-07-01")
+
+    net = get_position_net("512800")
+    # 净持仓应为 1000（第一轮已清零），而不是 0（第一轮 SELL 扣减）
+    assert net["net_shares"] == 1000, f"重新买入后净持仓应为 1000，实 {net['net_shares']}"
+
+    summaries = get_position_summary_all()
+    assert len(summaries) == 1
+    assert summaries[0]["total_shares"] == 1000
+
+
+def test_avg_pnl_pct_formula():
+    """验证 avg_pnl_pct 公式正确：avg_entry = close_price - total_pnl/total_shares"""
+    _setup()
+    add_trade(target="512800", target_type="ETF", target_name="银行ETF",
+              action="BUY", amount=780, price=0.78, shares=1000, trade_date="2026-06-01")
+    add_trade(target="512800", target_type="ETF", target_name="银行ETF",
+              action="ADD", amount=410, price=0.82, shares=500, trade_date="2026-06-10")
+
+    close_price = 0.85
+    r = close_trade_by_target("512800", close_price, "2026-06-30")
+    total_shares = 1500
+    total_cost = 780 + 410  # 1190
+    avg_entry = total_cost / total_shares  # 0.7933
+    total_pnl = (close_price - 0.78) * 1000 + (close_price - 0.82) * 500
+    expected_avg_pnl_pct = (close_price - avg_entry) / avg_entry
+    assert abs(r["avg_pnl_pct"] - expected_avg_pnl_pct) < 0.001, (
+        f"期望 avg_pnl_pct={expected_avg_pnl_pct:.4f}，实 {r['avg_pnl_pct']:.4f}"
+    )

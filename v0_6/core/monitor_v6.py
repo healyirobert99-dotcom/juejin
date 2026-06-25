@@ -313,7 +313,10 @@ def monitor_all_positions_v6(today: str = None) -> List[dict]:
             entry_date=s["first_buy"],
             entry_price=s["avg_cost"],
             today=today,
-            progress=0.05,  # 默认值，由后续监控中的 60d_low 重算
+            progress=s.get("progress_at_entry") or 0.05,
+            stop_threshold=s.get("stop_threshold"),
+            take_profit_threshold=s.get("take_profit_threshold"),
+            progress_bucket=s.get("progress_bucket"),
             reduced_1_3=s["has_reduced"],
         )
         results.append(result)
