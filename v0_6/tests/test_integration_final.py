@@ -297,3 +297,71 @@ def test_sell_rebuy_through_backend(monkeypatch, tmp_path):
     assert len(summaries) == 1
     assert summaries[0]["total_shares"] == 600.0
     con.close()
+
+
+# ═══════════════════════════════════════════════════
+# 7. ETF 部分失败回滚
+# ═══════════════════════════════════════════════════
+
+def test_etf_partial_failure_rollback(monkeypatch, tmp_path):
+    """3 只 ETF，1 只请求失败 → 当日 0 行新增，MAX 日期不前进，返回 ok=False"""
+    db = _patch_stock_db(monkeypatch, tmp_path)
+    con = sqlite3.connect(str(db))
+    _ensure_tables(con)
+    con.execute("INSERT INTO market_calendar VALUES ('20260625', 1)")
+    con.commit()
+    con.close()
+
+    # patch DATA_DIR 为临时目录并创建 CSV
+    import v0_6.core.config as cfg
+    orig_data_dir = cfg.DATA_DIR
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp_path)
+    import v0_6.core.market_data as md
+    monkeypatch.setattr(md, "DATA_DIR", tmp_path)
+
+    import csv
+    csv_path = tmp_path / "sector_etf_map.csv"
+    with open(str(csv_path), "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["板块", "维度", "细分", "代码", "名称", "指数", "规模", "纯度", "备注"])
+        w.writerow(["金融", "行业", "银行", "512800", "银行ETF", "中证银行", "~300", "纯", ""])
+        w.writerow(["金融", "行业", "证券", "512880", "证券ETF", "证券公司", "~200", "纯", ""])
+        w.writerow(["科技", "行业", "半导体", "159995", "芯片ETF", "芯片指数", "~150", "纯", ""])
+
+    # 用 pandas DataFrame 做模拟 Tushare 返回（更可靠）
+    import pandas as pd
+
+    class MockPro:
+        def __init__(self):
+            self._call_count = 0
+        def fund_daily(self, ts_code, start_date, end_date):
+            self._call_count += 1
+            if "159995" in ts_code:
+                raise Exception("无权限")
+            return pd.DataFrame({
+                "ts_code": [ts_code],
+                "trade_date": [start_date],
+                "close": [1.0],
+                "vol": [1000000],
+                "amount": [1000000],
+            })
+        def daily(self, ts_code, start_date, end_date):
+            return self.fund_daily(ts_code, start_date, end_date)
+        def trade_cal(self, start_date, end_date):
+            return pd.DataFrame({"cal_date": ["20260625"], "is_open": [1]})
+
+    from v0_6.scripts.refresh_market_data import refresh_etf_daily
+    result = refresh_etf_daily(MockPro(), dry_run=False)
+
+    monkeypatch.setattr(cfg, "DATA_DIR", orig_data_dir)
+    monkeypatch.setattr(md, "DATA_DIR", orig_data_dir)
+
+    assert not result["ok"], "ETF 部分失败时应返回 ok=False"
+    assert result.get("failed") is not None, "应包含 failed 列表"
+    failed_codes = [f[0] for f in result["failed"]]
+    assert "159995.SZ" in failed_codes, f"失败列表应含 159995.SZ，实 {failed_codes}"
+
+    con2 = sqlite3.connect(str(db))
+    max_date = con2.execute("SELECT MAX(trade_date) FROM etf_daily").fetchone()[0]
+    con2.close()
+    assert max_date is None, f"MAX(trade_date) 应仍为 None，实 {max_date}"

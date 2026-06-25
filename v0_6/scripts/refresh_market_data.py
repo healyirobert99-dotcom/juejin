@@ -452,15 +452,18 @@ def refresh_etf_daily(pro, dry_run: bool = False) -> dict:
             day_rows.append(row)
             time.sleep(0.15)
 
-        # 2) 检查开放持仓 ETF 是否全部成功
-        open_failed = [c for c, _ in day_failed if c in open_etf_codes]
-        if open_failed:
+        # 2) 检查更新完整性：任何 ETF 失败都阻断该日提交
+        if day_failed:
             dst.close()
             result["ok"] = False
-            result["error"] = (
-                f"日期 {td_str}: 开放持仓 ETF {open_failed} 更新失败，该日回滚"
-            )
             result["failed"] = day_failed
+            open_in_failed = [c for c, _ in day_failed if c in open_etf_codes]
+            detail = f"含 {len(open_in_failed)} 个开放持仓 ETF" if open_in_failed else ""
+            result["error"] = (
+                f"日期 {td_str}: {len(day_failed)}/{len(normalized)} 个 ETF 更新失败"
+                + (f"（{detail}）" if detail else "")
+                + "，该日未提交"
+            )
             return result
 
         # 3) 原子写入
