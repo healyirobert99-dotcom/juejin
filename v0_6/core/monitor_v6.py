@@ -153,6 +153,7 @@ def evaluate_position_v6(
         }
 
     # — ETF / STOCK：拉标的自身价格 —
+    requested_date = today
     prices = get_target_price(target, target_type, today)
     if prices.empty:
         # Fallback: 找最近的有数据日
@@ -184,7 +185,8 @@ def evaluate_position_v6(
         today_dt = prices["date"].iloc[-1]
         actual_today = today_dt.strftime("%Y-%m-%d")
     else:
-        actual_today = today
+        # 实际价格日期 = 数据中的最后一天（可能早于请求日期）
+        actual_today = prices_after["date"].iloc[-1].strftime("%Y-%m-%d")
 
     current_price = prices_after["close"].iloc[-1]
     return_pct = (current_price - entry_price) / entry_price
@@ -274,6 +276,7 @@ def evaluate_position_v6(
         "target_type": target_type,
         "entry_date": entry_date,
         "today": actual_today,
+        "requested_date": requested_date,
         "entry_price": entry_price,
         "current_price": current_price,
         "current_progress": current_progress,

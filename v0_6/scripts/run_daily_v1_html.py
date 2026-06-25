@@ -629,19 +629,50 @@ body {
   transition: all 120ms ease;
 }
 .entry-cta-inline:hover { background: var(--accent); color: var(--ink-on-dark); }
+
+/* 数据日期提示（当生成日期 != 数据日期时） */
+.data-note {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-style: italic;
+  margin-top: 4px;
+  letter-spacing: 0.02em;
+}
 </style>
 """
 
 
 # ============== 数据获取 ==============
 
-def get_today_signals(today: str, lookback_days: int = 3):
-    sd = load_raw_daily("2010-01-01", today)
+def get_signal_data_date(requested_date: str) -> str | None:
+    """返回 daily_hfq 中不晚于 requested_date 的最大 trade_date。
+    返回格式 YYYY-MM-DD，无可用数据时返回 None。"""
+    import sqlite3
+    from v0_6.core.config import STOCK_DATA_DB
+    if not STOCK_DATA_DB.exists():
+        return None
+    con = sqlite3.connect(str(STOCK_DATA_DB))
+    row = con.execute(
+        "SELECT MAX(trade_date) FROM daily_hfq WHERE trade_date <= ?",
+        (requested_date.replace("-", ""),),
+    ).fetchone()
+    con.close()
+    if row and row[0]:
+        d = row[0]
+        return f"{d[:4]}-{d[4:6]}-{d[6:]}"
+    return None
+
+
+def get_today_signals(signal_data_date: str, lookback_days: int = 3):
+    sd = load_raw_daily("2010-01-01", signal_data_date)
     sd_ind = compute_per_stock_indicators(sd)
     daily = compute_industry_daily_metrics(sd_ind)
     signals = detect_stabilizing_b(daily)
     signals = mark_repeat_priority(signals)
-    today_dt = pd.to_datetime(today)
+    # 信号按 signal_data_date 精确过滤（非自然日）
+    # 改为返回 lookback 天内的信号，让 render_html 按 signal_data_date 筛选
+    today_dt = pd.to_datetime(signal_data_date)
     return signals[signals["signal_date"] >= (today_dt - pd.Timedelta(days=lookback_days))]
 
 
@@ -676,6 +707,7 @@ def render_position_card(r: dict) -> str:
     stop_price = r.get("stop_price", 0)
     tp_price = r.get("take_profit_price", 0)
     current_price = r.get("current_price", 0)
+    price_date = r.get("today", "")
 
     # 操作建议文案
     if action == "CLEAR":
@@ -707,6 +739,7 @@ def render_position_card(r: dict) -> str:
     <div class="led-pct {ret_class}">{fmt_pct(ret)}</div>
     <div class="led-stops">入场 {r['entry_date']}</div>
     <div class="led-stops">现价 {fmt_price(current_price)}</div>
+    <div class="led-stops" style="font-size:10px;color:var(--ink-3);">价格截至 {price_date}</div>
     <div class="led-stops">止损 <b>{fmt_price(stop_price)}</b> · 止盈 <b>{fmt_price(tp_price)}</b></div>
   </div>
   <div class="led-advice {action}">{advice}</div>
@@ -716,9 +749,9 @@ def render_position_card(r: dict) -> str:
 
 # ============== 主渲染 ==============
 
-def render_html(today: str, today_signals: pd.DataFrame, monitoring: list) -> str:
-    today_dt = pd.to_datetime(today)
-    today_only = today_signals[today_signals["signal_date"] == today_dt]
+def render_html(requested_date: str, signal_data_date: str, today_signals: pd.DataFrame, monitoring: list) -> str:
+    sd_dt = pd.to_datetime(signal_data_date)
+    today_only = today_signals[today_signals["signal_date"] == sd_dt]
     n_today = len(today_only)
     n_repeat = len(today_only[today_only["priority"] == "REPEAT"])
     n_alerts = sum(1 for r in monitoring if r.get("priority") in ("RED", "YELLOW"))
@@ -726,17 +759,23 @@ def render_html(today: str, today_signals: pd.DataFrame, monitoring: list) -> st
     n_positions = len(monitoring)
 
     # 解析日期为刊头需要的形式
-    y, m, d = today.split("-")
+    y, m, d = requested_date.split("-")
 
     # 空报告标记
     empty_mark = " · 空" if n_today == 0 else ""
+
+    # 数据日期与生成日期不一致时，增加数据日期提示
+    date_diff = requested_date != signal_data_date
+    data_line = ""
+    if date_diff:
+        data_line = f'  <div class="data-note">信号数据截至 {signal_data_date}</div>'
 
     html = [f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>掘金日报 · {today}{empty_mark} | Zhuxian Catch v0.6</title>
+<title>掘金日报 · {requested_date}{empty_mark} | Zhuxian Catch v0.6</title>
 {HTML_STYLE}
 </head>
 <body>
@@ -744,7 +783,7 @@ def render_html(today: str, today_signals: pd.DataFrame, monitoring: list) -> st
   <header class="masthead">
     <span class="vol">Vol. I · No. {int(d)}</span>
     <span class="issue">掘金日报 · THE DAILY DIGEST</span>
-    <span>Edition of {today}</span>
+    <span>Edition of {requested_date}</span>
   </header>
 
   <div style="text-align: right; margin-bottom: var(--u3);">
@@ -757,6 +796,7 @@ def render_html(today: str, today_signals: pd.DataFrame, monitoring: list) -> st
     <div>
       <div class="dl-title">掘金<br>信号日报</div>
       <div class="dl-subtitle">基于 4 因子宽度回看的板块信号 · 配 4 进度桶<br>止盈止损分桶规则 · 第 VI 期{empty_mark}</div>
+      {data_line}
     </div>
   </div>
 """]
@@ -925,17 +965,27 @@ def render_html(today: str, today_signals: pd.DataFrame, monitoring: list) -> st
 
 def main():
     if len(sys.argv) >= 2:
-        today = sys.argv[1]
+        requested_date = sys.argv[1]
     else:
-        today = datetime.now().strftime("%Y-%m-%d")
+        requested_date = datetime.now().strftime("%Y-%m-%d")
 
-    print(f"\n=== 掘金日报 V1.0 HTML | {today} ===\n")
+    # 解析信号数据日期（回退至 daily_hfq 最大可用日期）
+    signal_data_date = get_signal_data_date(requested_date)
+    if signal_data_date is None:
+        print(f"\n❌ 未找到 {requested_date} 当日及以前的 daily_hfq 数据，无法生成信号日报。")
+        return 1
 
-    today_signals = get_today_signals(today)
-    monitoring = monitor_all_positions_v6(today)
+    date_note = f" (数据截至 {signal_data_date})" if signal_data_date != requested_date else ""
+    print(f"\n=== 掘金日报 V1.0 HTML | {requested_date}{date_note} ===\n")
 
-    html = render_html(today, today_signals, monitoring)
-    out_path = DAILY_DIR / f"daily_v1_{today}.html"
+    if signal_data_date != requested_date:
+        print(f"  信号数据截至 {signal_data_date}（请求日期 {requested_date} 非交易日或数据落后）")
+
+    today_signals = get_today_signals(signal_data_date)
+    monitoring = monitor_all_positions_v6(requested_date)
+
+    html = render_html(requested_date, signal_data_date, today_signals, monitoring)
+    out_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
     out_path.write_text(html, encoding="utf-8")
     print(f"  ✓ {out_path}")
 

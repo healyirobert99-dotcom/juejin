@@ -22,10 +22,21 @@ def main():
     args = parser.parse_args()
 
     init_schema()
-    today = args.today or datetime.now().strftime("%Y-%m-%d")
-    print(f"查询日期: {today}\n")
+    requested_date = args.today or datetime.now().strftime("%Y-%m-%d")
+    print(f"查询日期: {requested_date}\n")
 
-    results = monitor_all_positions_v6(today=today)
+    results = monitor_all_positions_v6(today=requested_date)
+
+    # 找出不同的价格日期
+    price_dates = set()
+    for r in results:
+        if r.get("today"):
+            price_dates.add(r["today"])
+    if price_dates:
+        for pd_ in sorted(price_dates):
+            if pd_ != requested_date:
+                print(f"  价格截至: {pd_}")
+        print()
     if not results:
         print("暂无未平仓持仓。")
         return

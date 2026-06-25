@@ -76,42 +76,64 @@ def get_etf_latest_price(target: str) -> dict:
 def auto_calc_rules(target: str, target_type: str, trade_date: str) -> dict:
     """对 ETF/STOCK 自动算：当前价、60d_low、进度、桶、止损/止盈价
 
-    行业（INDUSTRY）无标的价，退回让用户手动
+    全部使用 trade_date 当日及以前的数据（不使用该日期之后的未来价格）。
+    行业（INDUSTRY）无标的价，退回让用户手动。
     """
     if target_type == "INDUSTRY":
         return {}
-    latest = get_etf_latest_price(target)
-    if not latest:
-        return {}
-    cur = latest["price"]
-    # 60d low
+
     con = sqlite3.connect(str(STOCK_DATA_DB))
-    rows = con.execute(
-        "SELECT close FROM etf_daily WHERE ts_code LIKE ? AND trade_date <= ? ORDER BY trade_date DESC LIMIT 60",
-        (target + "%", trade_date.replace("-", "")),
-    ).fetchall()
-    if not rows:
-        # 试 daily_hfq
+    date_yyyymmdd = trade_date.replace("-", "")
+
+    # 构造候选代码
+    candidates = [target]
+    if "." not in target:
+        if target.startswith(("5", "1")):
+            candidates.insert(0, target + ".SH")
+            candidates.append(target + ".SZ")
+    else:
+        candidates = [target]
+
+    # 根据 target_type 选择表
+    if target_type == "ETF":
+        table = "etf_daily"
+    elif target_type == "STOCK":
+        table = 'daily_hfq'
+    else:
+        con.close()
+        return {}
+
+    rows = None
+    for c in candidates:
         rows = con.execute(
-            'SELECT close FROM "daily_hfq" WHERE ts_code = ? AND trade_date <= ? ORDER BY trade_date DESC LIMIT 60',
-            (target, trade_date.replace("-", "")),
+            f"SELECT trade_date, close FROM {table} WHERE ts_code = ? AND trade_date <= ? ORDER BY trade_date DESC LIMIT 60",
+            (c, date_yyyymmdd),
         ).fetchall()
+        if rows:
+            break
     con.close()
+
     if not rows or len(rows) < 5:
-        return {"latest_price": cur, "as_of": latest["as_of"]}
-    low_60d = min(r[0] for r in rows)
-    progress = (cur - low_60d) / low_60d if low_60d > 0 else 0
+        return {}
+
+    closes = [r[1] for r in rows]
+    current_price = closes[0]
+    low_60d = min(closes)
+    progress = (current_price - low_60d) / low_60d if low_60d > 0 else 0
     bucket = get_bucket(progress)
+    # 止损止盈价基于当前现价（仅供参考，录入时会基于用户买入价重算）
+    stop_price = calc_stop_price(current_price, progress)
+    tp_price = calc_take_profit_price(current_price, progress)
     return {
-        "latest_price": cur,
+        "latest_price": current_price,
         "low_60d": low_60d,
         "progress": progress,
         "bucket": bucket["name"],
         "stop_pct": bucket["stop"],
         "take_profit_pct": bucket["take_profit"],
-        "stop_price": calc_stop_price(cur, progress),
-        "take_profit_price": calc_take_profit_price(cur, progress),
-        "as_of": latest["as_of"],
+        "stop_price": stop_price,
+        "take_profit_price": tp_price,
+        "as_of": rows[0][0],
     }
 
 
