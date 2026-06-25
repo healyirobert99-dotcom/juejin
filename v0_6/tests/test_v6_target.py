@@ -209,7 +209,7 @@ def test_industry_suppresses_pnl():
     assert r.get("return_pct") is None, "INDUSTRY 不应有 return_pct"
     assert r.get("stop_price") is None, "INDUSTRY 不应有 stop_price"
     assert r.get("take_profit_price") is None, "INDUSTRY 不应有 take_profit_price"
-    assert r.get("action") == "HOLD"
+    assert r.get("action") == "ERROR"
     assert len(r.get("alerts", [])) == 1
     assert r["alerts"][0]["type"] == "INDUSTRY_NOT_EXECUTABLE"
     print(f"  ✓ INDUSTRY → {r['error']}，无盈亏/止损/止盈")

@@ -126,13 +126,13 @@ def evaluate_position_v6(
             "target_type": target_type,
             "entry_date": entry_date,
             "error": "industry_not_executable",
-            "action": "HOLD",
-            "priority": "GREEN",
+            "action": "ERROR",
+            "priority": "YELLOW",
             "alerts": [{
                 "type": "INDUSTRY_NOT_EXECUTABLE",
                 "message": f"行业 {target} 不可作为交易标的，请通过 ETF 执行",
-                "action": "HOLD",
-                "priority": "GREEN",
+                "action": "ERROR",
+                "priority": "YELLOW",
             }],
         }
 
@@ -143,13 +143,13 @@ def evaluate_position_v6(
             "target_type": target_type or "unknown",
             "entry_date": entry_date,
             "error": "unknown_target_type",
-            "action": "HOLD",
-            "priority": "GREEN",
+            "action": "ERROR",
+            "priority": "YELLOW",
             "alerts": [{
                 "type": "UNKNOWN_TARGET_TYPE",
                 "message": f"未知标的类型 '{target_type}'，需要人工确认历史持仓类型",
-                "action": "HOLD",
-                "priority": "GREEN",
+                "action": "ERROR",
+                "priority": "YELLOW",
             }],
         }
 
@@ -307,7 +307,7 @@ def monitor_all_positions_v6(today: str = None) -> List[dict]:
             continue
 
         target = pos.get("target") or pos.get("industry", "?")
-        target_type = pos.get("target_type") or "INDUSTRY"
+        target_type = pos.get("target_type")  # 保留 None/空，不猜测成 INDUSTRY
 
         result = evaluate_position_v6(
             target=target,
