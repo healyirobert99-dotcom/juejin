@@ -57,13 +57,26 @@ class ReplayContext:
         self.reference_capital = 1_000_000.0
 
     def setup(self):
-        """创建隔离数据库、注入 DB_PATH"""
+        """创建隔离数据库、注入 DB_PATH
+
+        严格保证：每次 setup 都会得到一个**全新的、空的**回放库
+        - 行情库：用源库结构，行情表清空
+        - 交易库：删除旧文件并重建
+        """
         global _ORIG_DB_PATH, _ORIG_STOCK_DB
         import v0_6.core.config as cfg
         _ORIG_DB_PATH = cfg.DB_PATH
         _ORIG_STOCK_DB = cfg.STOCK_DATA_DB
 
         self.replay_dir.mkdir(parents=True, exist_ok=True)
+
+        # 0) 强制删除旧的回放交易库（如果存在）— 避免两次运行继承台账
+        if self.trade_db.exists():
+            self.trade_db.unlink()
+
+        # 0.5) 强制删除旧的回放行情库（如果存在）— 避免结构陈旧
+        if self.stock_db.exists():
+            self.stock_db.unlink()
 
         # 1) 创建空回放行情库，只复制结构
         shutil.copy2(self.source_db, self.stock_db)
@@ -79,13 +92,11 @@ class ReplayContext:
         con.commit()
         con.close()
 
-        # 3) 创建空回放交易库
+        # 3) 注入生产路径
+        self.inject_prod_paths()
+
+        # 4) 创建空回放交易库（路径已被 inject_prod_paths 指向 self.trade_db）
         from v0_6.core import init_schema
-        import v0_6.core.config as cfg_cls
-        import v0_6.core.live_trade_store as lts
-        cfg_cls.DB_PATH = self.trade_db
-        cfg_cls.STOCK_DATA_DB = self.stock_db
-        lts.DB_PATH = self.trade_db
         init_schema()
 
     def teardown(self):
@@ -135,7 +146,10 @@ class ReplayContext:
         con_dst.close()
 
     def inject_warmup(self, first_trade_date: str):
-        """注入回放起始前的预热数据（至少 120 个交易日）"""
+        """注入回放起始前的预热数据（至少 warmup_days 个交易日）
+
+        取 first_trade_date 之前的连续 warmup_days 个交易日
+        """
         con_src = sqlite3.connect(str(self.source_db))
         con_dst = sqlite3.connect(str(self.stock_db))
 
@@ -155,6 +169,7 @@ class ReplayContext:
                 (first_trade_date.replace("-", ""), self.warmup_days),
             ).fetchall()
 
+        # 升序注入
         warmup_dates = sorted([r[0] for r in cal_dates])
         for td in warmup_dates:
             for tbl in ["daily_hfq", "stock_daily_raw", "etf_daily"]:
@@ -181,10 +196,15 @@ class ReplayContext:
         con_dst.close()
 
     def determine_range(self) -> tuple[str, str]:
-        """自动确定回放日期范围"""
+        """自动确定回放日期范围
+
+        规则：
+        - 结束日：各表实际数据最小公共最大日期（保守取最早）
+        - 起始日：以"行情表共同有数据的最大起始日"为锚，
+                 跳过该日之后连续的 120 个实际交易日
+        """
         con = sqlite3.connect(str(self.source_db))
 
-        # 各表可能不存在
         def _max_of(table, col="trade_date"):
             try:
                 r = con.execute(f"SELECT MAX({col}) FROM {table}").fetchone()
@@ -192,40 +212,64 @@ class ReplayContext:
             except sqlite3.OperationalError:
                 return None
 
-        max_cal = _max_of("market_calendar", "cal_date") if con.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='market_calendar'"
-        ).fetchone() else None
-        max_hfq = _max_of("daily_hfq")
-        max_raw = _max_of("stock_daily_raw")
-        max_etf = _max_of("etf_daily")
+        def _min_of(table, col="trade_date"):
+            try:
+                r = con.execute(f"SELECT MIN({col}) FROM {table}").fetchone()
+                return r[0] if r and r[0] else None
+            except sqlite3.OperationalError:
+                return None
 
-        # 如果某表不存在，从其他表推断
-        if max_cal is None:
+        # 各行情表的 max（决定 end）与 min（决定 start 锚点）
+        hfq_min = _min_of("daily_hfq")
+        raw_min = _min_of("stock_daily_raw")
+        etf_min = _min_of("etf_daily")
+        hfq_max = _max_of("daily_hfq")
+        raw_max = _max_of("stock_daily_raw")
+        etf_max = _max_of("etf_daily")
+
+        # 锚点 = 各表共同有数据的"最晚"那个起始日
+        anchor_candidates = [d for d in [hfq_min, raw_min, etf_min] if d]
+        if not anchor_candidates:
             con.close()
             return _fallback_range(self.source_db)
+        anchor = max(anchor_candidates)
+
+        # 结束 = 各表实际最大日期的最早值（保守）
+        end_candidates = [d for d in [hfq_max, raw_max, etf_max] if d]
+        if not end_candidates:
+            con.close()
+            return _fallback_range(self.source_db)
+        end = min(end_candidates)
+
+        # 交易日历可用则用交易日历推 120 个交易日；否则用 daily_hfq 唯一日期
+        if con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='market_calendar'"
+        ).fetchone():
+            # 取从 anchor 之后连续第 120 个交易日作为 start
+            r = con.execute(
+                "SELECT cal_date FROM market_calendar WHERE is_open=1 "
+                "AND cal_date >= ? AND cal_date <= ? ORDER BY cal_date "
+                "LIMIT 1 OFFSET ?",
+                (anchor, end, self.warmup_days),
+            ).fetchone()
+        else:
+            r = con.execute(
+                "SELECT DISTINCT trade_date FROM daily_hfq "
+                "WHERE trade_date >= ? AND trade_date <= ? ORDER BY trade_date "
+                "LIMIT 1 OFFSET ?",
+                (anchor, end, self.warmup_days),
+            ).fetchone()
 
         con.close()
 
-        end = min(d for d in [max_cal, max_hfq, max_raw, max_etf] if d)
-        end_str = f"{end[:4]}-{end[4:6]}-{end[6:]}"
-
-        # 起始 = 预热后第一个交易日
-        con2 = sqlite3.connect(str(self.source_db))
-        warmup_start_row = con2.execute(
-            "SELECT cal_date FROM market_calendar WHERE is_open=1 "
-            "ORDER BY cal_date ASC LIMIT 1"
-        ).fetchone()
-        con2.close()
-        if warmup_start_row:
-            ws = warmup_start_row[0]
-            ws_str = f"{ws[:4]}-{ws[4:6]}-{ws[6:]}"
-            start = (
-                pd.to_datetime(ws_str) + pd.Timedelta(days=self.warmup_days * 2)
-            ).strftime("%Y-%m-%d")
+        if r and r[0]:
+            start_str = f"{r[0][:4]}-{r[0][4:6]}-{r[0][6:]}"
         else:
-            start = end_str
+            # 数据太短：直接以 anchor 后的第一个交易日作为 start
+            start_str = f"{anchor[:4]}-{anchor[4:6]}-{anchor[6:]}"
 
-        return start, end_str
+        end_str = f"{end[:4]}-{end[4:6]}-{end[6:]}"
+        return start_str, end_str
 
     def current_stock_db(self) -> Path:
         return self.stock_db
@@ -542,18 +586,53 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                     except Exception as e:
                         unfills.append({**order, "status": "UNFILLED_ERROR", "failure_reason": str(e)})
                 elif action == "SELL":
-                    from v0_6.core import close_trade_by_target
+                    # P0-3 修复：先读净股数 → add_trade(SELL, net) → close_trade_by_target
+                    # 不再用 close_trade_by_target 返回的原始买入总股数作为成交股数
+                    from v0_6.core import add_trade, close_trade_by_target, get_position_net
+                    from v0_6.core.config import DB_PATH as _DB
+
+                    net = get_position_net(target)
+                    net_shares = net.get("net_shares", 0)
+                    if net_shares <= 0:
+                        # 净股数 = 0：标记为无意义清仓
+                        unfills.append({
+                            **order,
+                            "status": "UNFILLED_ERROR",
+                            "failure_reason": f"目标 {target} 净股数=0，跳过 SELL",
+                        })
+                        ctx.pending_orders.remove(order)
+                        continue
+
                     try:
+                        sell_amount = round(net_shares * price, 2)
+                        trade_id = add_trade(
+                            target=target,
+                            target_type=target_type,
+                            target_name=order.get("target_name", target),
+                            action="SELL",
+                            amount=sell_amount,
+                            price=price,
+                            shares=net_shares,
+                            trade_date=current_date,
+                            notes=f"replay sell #{order.get('signal_date', '')}",
+                        )
+                        # 关闭整个周期（关闭该 target 的所有未平仓 BUY/ADD + REDUCE）
                         summary = close_trade_by_target(target, price, current_date)
-                        # SELL 记录已由 close_trade_by_target 关闭，不再额外 add_trade
+
+                        # 成交股数 = 净股数，不是 close_trade_by_target 返回的 total_shares
+                        realized_pnl = summary.get("total_pnl", 0)
                         fills.append({
                             "signal_date": order.get("signal_date", ""),
                             "fill_date": current_date,
-                            "target": target, "target_type": target_type,
-                            "action": "SELL", "shares": summary.get("total_shares", 0),
-                            "price": price, "amount": summary.get("total_shares", 0) * price,
+                            "target": target,
+                            "target_type": target_type,
+                            "action": "SELL",
+                            "shares": net_shares,  # 净股数（修复前错误为原始买入总股数）
+                            "price": price,
+                            "amount": sell_amount,
+                            "realized_pnl": round(realized_pnl, 2),
                             "status": "FILLED",
-                            "pnl": summary.get("total_pnl", 0),
+                            "trade_id": trade_id,
                         })
                         order["status"] = "FILLED"
                         order["fill_date"] = current_date
@@ -574,8 +653,18 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
         if validation["ok"]:
             sd_date = get_signal_data_date(current_date)
             if sd_date:
+                # P0-1 修复：必须严格过滤到当前交易日，避免 T/T+1/T+2 重复下单
                 signals_today = get_today_signals(sd_date)
                 if signals_today is not None and not signals_today.empty:
+                    sd_dt = pd.to_datetime(sd_date)
+                    cur_dt = pd.to_datetime(current_date)
+                    if "signal_date" in signals_today.columns:
+                        signals_today = signals_today[
+                            signals_today["signal_date"] == cur_dt
+                        ]
+                    # 如果 signal_date 全部是 0:00:00，比较日期部分
+                    if (signals_today is None or signals_today.empty) and "signal_date" in signals_today.columns:
+                        pass  # 已严格过滤，结果可能为空
                     for _, sig in signals_today.iterrows():
                         sig_rec = {
                             "date": current_date,
@@ -688,6 +777,10 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
         day_rec["positions_after"] = len(get_position_summary_all())
         day_rec["pending_orders_after"] = len(ctx.pending_orders)
 
+        # P1-4 修复：逐日计算真实敞口、已实现盈亏、未实现盈亏和总盈亏
+        acct = _compute_daily_account(ctx, current_date)
+        day_rec["account"] = acct
+
         ctx.days.append(day_rec)
 
         # 不变量检查
@@ -724,13 +817,112 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
     return result
 
 
+def _compute_daily_account(ctx: ReplayContext, current_date: str) -> dict:
+    """计算当日账户快照
+
+    返回：
+    - gross_exposure: 未平仓标的的当前市值合计
+    - position_count: 未平仓标的数量
+    - realized_pnl: 截至当日已平仓 BUY+ADD 的累计实现盈亏
+    - unrealized_pnl: 未平仓标的的浮盈
+    - total_pnl = realized + unrealized
+    - cash_estimate: 估算可用资金（参考本金 + 已实现盈亏 - 累计买入 - 累计买入金额已被对冲）
+    """
+    from v0_6.core import get_position_summary_all
+    import v0_6.core.config as cfg
+
+    summaries = get_position_summary_all()
+    con = sqlite3.connect(str(cfg.DB_PATH))
+
+    # 当日已平仓记录（截至 current_date）
+    realized_rows = con.execute(
+        """
+        SELECT COALESCE(SUM((close_price - price) * shares), 0) AS realized
+        FROM live_trades
+        WHERE action IN ('BUY', 'ADD') AND closed = 1
+          AND close_date <= ?
+        """,
+        (current_date.replace("-", ""),),
+    ).fetchone()
+    realized_pnl = realized_rows[0] or 0.0
+
+    # 未平仓标的的当前市价 → gross_exposure + unrealized_pnl
+    gross_exposure = 0.0
+    unrealized_pnl = 0.0
+    for s in summaries:
+        target = s["target"]
+        ttype = s.get("target_type", "STOCK")
+        net_shares = s["total_shares"]
+        avg_cost = s.get("avg_cost", 0)
+
+        # 选价表
+        tbl = "etf_daily" if ttype == "ETF" else "stock_daily_raw" if ttype == "STOCK" else None
+        if not tbl:
+            continue
+        cur = sqlite3.connect(str(ctx.stock_db))
+        try:
+            row = cur.execute(
+                f"SELECT close FROM {tbl} WHERE ts_code LIKE ? AND trade_date = ?",
+                (target + "%", current_date.replace("-", "")),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        finally:
+            cur.close()
+        if not row or not row[0]:
+            # 当日无行情：敞口按成本估算
+            price = avg_cost
+        else:
+            price = row[0]
+        market_value = price * net_shares
+        gross_exposure += market_value
+        unrealized_pnl += (price - avg_cost) * net_shares
+
+    # 累计投入 = 已平仓建仓金额 + 未平仓建仓金额
+    invested_rows = con.execute(
+        """
+        SELECT COALESCE(SUM(amount), 0) AS invested
+        FROM live_trades
+        WHERE action IN ('BUY', 'ADD') AND trade_date <= ?
+        """,
+        (current_date.replace("-", ""),),
+    ).fetchone()
+    invested = invested_rows[0] or 0.0
+
+    # 累计回收 = REDUCE+SELL 收到的金额
+    recovered_rows = con.execute(
+        """
+        SELECT COALESCE(SUM(amount), 0) AS recovered
+        FROM live_trades
+        WHERE action IN ('REDUCE', 'SELL') AND trade_date <= ?
+        """,
+        (current_date.replace("-", ""),),
+    ).fetchone()
+    recovered = recovered_rows[0] or 0.0
+
+    # 现金估算 = 参考本金 + 已实现盈亏 - 累计净投入（已平仓 + 未平仓）
+    # 已实现盈亏已含已平仓建仓成本的回收，因此现金 = 本金 - 未平仓成本
+    cash_estimate = ctx.reference_capital - (invested - recovered - realized_pnl)
+
+    con.close()
+
+    return {
+        "gross_exposure": round(gross_exposure, 2),
+        "position_count": len(summaries),
+        "realized_pnl": round(realized_pnl, 2),
+        "unrealized_pnl": round(unrealized_pnl, 2),
+        "total_pnl": round(realized_pnl + unrealized_pnl, 2),
+        "invested_total": round(invested, 2),
+        "recovered_total": round(recovered, 2),
+        "cash_estimate": round(cash_estimate, 2),
+    }
+
+
 def _check_invariants(ctx: ReplayContext, today: str):
     """逐日不变量检查"""
     from v0_6.core import get_position_summary_all, get_position_net
 
-    summaries = get_position_summary_all()
-
-    # 净股数 >= 0
+    summaries = get_position_summary_all()    # 净股数 >= 0
     for s in summaries:
         if s["total_shares"] < 0:
             ctx.invariant_violations.append({
@@ -808,9 +1000,30 @@ def _write_report(ctx: ReplayContext):
         f"| 不变量违反 | {len(ctx.invariant_violations)} |",
         f"| 最终持仓 | {final_positions} |",
         "",
+    ]
+
+    # P1-4：最终账户汇总（从每日 account 序列取最后一行）
+    if ctx.days and ctx.days[-1].get("account"):
+        last_acct = ctx.days[-1]["account"]
+        lines.extend([
+            "## 账户终态",
+            "",
+            f"| 指标 | 值 |",
+            f"|---|---|",
+            f"| 参考本金 | ¥{ctx.reference_capital:,.2f} |",
+            f"| 总敞口（gross_exposure） | ¥{last_acct.get('gross_exposure', 0):,.2f} |",
+            f"| 已实现盈亏 | ¥{last_acct.get('realized_pnl', 0):,.2f} |",
+            f"| 未实现盈亏 | ¥{last_acct.get('unrealized_pnl', 0):,.2f} |",
+            f"| 总盈亏 | ¥{last_acct.get('total_pnl', 0):,.2f} |",
+            f"| 估算可用现金 | ¥{last_acct.get('cash_estimate', 0):,.2f} |",
+            f"| 持仓数量 | {last_acct.get('position_count', 0)} |",
+            "",
+        ])
+
+    lines.extend([
         "## 验收结论",
         "",
-    ]
+    ])
 
     if ctx.invariant_violations:
         lines.append("**❌ 不变量违反存在，验收失败**")
@@ -836,12 +1049,14 @@ def _write_trades_csv(ctx: ReplayContext):
     with open(str(path), "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["fill_date", "target", "target_type", "action", "shares", "price", "amount",
-                     "signal_date", "status", "pnl"])
+                     "realized_pnl", "signal_date", "status", "trade_id"])
         for t in ctx.trades:
             w.writerow([
                 t.get("fill_date", ""), t.get("target", ""), t.get("target_type", ""),
                 t.get("action", ""), t.get("shares", 0), t.get("price", 0), t.get("amount", 0),
-                t.get("signal_date", ""), t.get("status", ""), t.get("pnl", ""),
+                t.get("realized_pnl", t.get("pnl", "")),
+                t.get("signal_date", ""), t.get("status", ""),
+                t.get("trade_id", ""),
             ])
 
 
@@ -850,16 +1065,20 @@ def _write_daily_account_csv(ctx: ReplayContext):
     with open(str(path), "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["date", "gross_exposure", "position_count", "realized_pnl", "unrealized_pnl",
-                     "total_pnl", "blocked", "signals", "fills"])
+                     "total_pnl", "invested_total", "recovered_total", "cash_estimate",
+                     "blocked", "signals", "fills"])
         for d in ctx.days:
-            # 粗略估算浮盈：通过 holdings 总和 — 这只是链路验收，不是精确财务
+            acct = d.get("account") or {}
             w.writerow([
                 d["replay_date"],
-                d["positions_after"],
-                d["positions_after"],
-                "",
-                "",
-                "",
+                acct.get("gross_exposure", ""),
+                acct.get("position_count", ""),
+                acct.get("realized_pnl", ""),
+                acct.get("unrealized_pnl", ""),
+                acct.get("total_pnl", ""),
+                acct.get("invested_total", ""),
+                acct.get("recovered_total", ""),
+                acct.get("cash_estimate", ""),
                 1 if d["blocked"] else 0,
                 len(d["signals"]),
                 len(d["filled_orders"]),

@@ -2,11 +2,14 @@
 全链路历史回放 CLI 入口
 
 用法：
-    python replay_full_chain.py                          # 完整回放
+    python replay_full_chain.py                          # 完整回放（默认每次使用独立子目录）
     python replay_full_chain.py --smoke 20               # 前20个交易日冒烟
-    python replay_full_chain.py --output ./my_replay     # 输出目录
+    python replay_full_chain.py --output ./my_replay     # 输出目录（保持固定以保留历史）
+    python replay_full_chain.py --reuse-output           # 显式复用指定输出目录（用于调试）
 """
 import sys
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 V0_6_ROOT = Path(__file__).resolve().parents[2]
@@ -20,7 +23,8 @@ def main():
     parser = argparse.ArgumentParser(description="全链路历史回放")
     parser.add_argument("--smoke", type=int, default=None, help="冒烟模式：只跑 N 个交易日")
     parser.add_argument("--source", type=str, default=None, help="源行情库路径（默认 stock_data/stock_data.db）")
-    parser.add_argument("--output", type=str, default=None, help="输出目录（默认 artifacts/replay）")
+    parser.add_argument("--output", type=str, default=None, help="输出目录（默认 artifacts/replay/<时间戳>）")
+    parser.add_argument("--reuse-output", action="store_true", help="复用指定输出目录（用于调试，否则每次都建独立子目录）")
     args = parser.parse_args()
 
     from v0_6.core.config import STOCK_DATA_DIR
@@ -29,7 +33,17 @@ def main():
         print(f"❌ 源行情库不存在: {source_db}")
         sys.exit(1)
 
-    output_dir = Path(args.output) if args.output else OUTPUT_DIR
+    # 默认每次运行创建独立子目录，避免两次完整回放互相污染
+    if args.output:
+        output_dir = Path(args.output)
+    elif args.reuse_output:
+        output_dir = OUTPUT_DIR
+    else:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = OUTPUT_DIR / f"run_{ts}_{uuid.uuid4().hex[:6]}"
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"📂 输出目录: {output_dir}")
 
     # 真实数据库 SHA256 备份
     import hashlib
