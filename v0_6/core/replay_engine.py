@@ -472,10 +472,19 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                     ctx.pending_orders.remove(order)
                     continue
 
-                shares = order["shares"]
+                # shares/amount 根据 action 类型不同计算方式
+                shares = order.get("shares", 0)
                 amount = shares * price
 
                 if action in ("BUY", "ADD"):
+                    # T+1 日按目标金额成交，股数用 T+1 收盘价计算（非 T 日预估值）
+                    suggested_amt = order.get("suggested_amount")
+                    if suggested_amt and suggested_amt > 0 and price > 0:
+                        shares = suggested_amt / price
+                        amount = suggested_amt
+                    else:
+                        shares = order.get("shares", 0)
+                        amount = shares * price
                     # 计算 T+1 日的进度桶（基于 T+1 收盘价）
                     from v0_6.core.market_data import normalize_etf_ts_code, normalize_stock_ts_code
                     norm_fn = normalize_etf_ts_code if target_type == "ETF" else normalize_stock_ts_code
@@ -555,8 +564,13 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                             "failure_reason": str(e),
                         })
                 elif action == "REDUCE":
-                    from v0_6.core import add_trade
+                    from v0_6.core import add_trade, get_position_net
                     try:
+                        # REDUCE 的 realized_pnl = (REDUCE 价 - 平均成本) × REDUCE 股数
+                        net_r = get_position_net(target)
+                        red_avg_cost = net_r.get("avg_cost", 0) if net_r else 0
+                        red_realized = (price - red_avg_cost) * shares if red_avg_cost > 0 else 0
+
                         trade_id = add_trade(
                             target=target,
                             target_type=target_type,
@@ -580,6 +594,7 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                             "target": target, "target_type": target_type,
                             "action": "REDUCE", "shares": shares,
                             "price": price, "amount": round(amount, 2),
+                            "realized_pnl": round(red_realized, 2),
                             "status": "FILLED",
                         })
                         order["status"] = "FILLED"
@@ -593,6 +608,7 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
 
                     net = get_position_net(target)
                     net_shares = net.get("net_shares", 0)
+                    avg_cost = net.get("avg_cost", 0)
                     if net_shares <= 0:
                         # 净股数 = 0：标记为无意义清仓
                         unfills.append({
@@ -617,20 +633,20 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                             notes=f"replay sell #{order.get('signal_date', '')}",
                         )
                         # 关闭整个周期（关闭该 target 的所有未平仓 BUY/ADD + REDUCE）
-                        summary = close_trade_by_target(target, price, current_date)
+                        close_trade_by_target(target, price, current_date)
 
-                        # 成交股数 = 净股数，不是 close_trade_by_target 返回的 total_shares
-                        realized_pnl = summary.get("total_pnl", 0)
+                        # 成交股数 = 净股数；已实现盈亏 = (清仓价 - 平均成本) × 净股数
+                        sell_realized = (price - avg_cost) * net_shares if avg_cost > 0 else 0
                         fills.append({
                             "signal_date": order.get("signal_date", ""),
                             "fill_date": current_date,
                             "target": target,
                             "target_type": target_type,
                             "action": "SELL",
-                            "shares": net_shares,  # 净股数（修复前错误为原始买入总股数）
+                            "shares": net_shares,
                             "price": price,
                             "amount": sell_amount,
-                            "realized_pnl": round(realized_pnl, 2),
+                            "realized_pnl": round(sell_realized, 2),
                             "status": "FILLED",
                             "trade_id": trade_id,
                         })
@@ -688,28 +704,13 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                                 is_repeat=(sig.get("priority") == "REPEAT"))
                             suggested_amount = ctx.reference_capital * pos_pct
 
-                            # 查该 ETF 现价
-                            price_for_shares = None
-                            con_tmp = sqlite3.connect(str(ctx.stock_db))
-                            row = con_tmp.execute(
-                                "SELECT close FROM etf_daily WHERE ts_code LIKE ? AND trade_date = ?",
-                                (best.get("code", "") + "%", current_date.replace("-", "")),
-                            ).fetchone()
-                            con_tmp.close()
-                            if row:
-                                price_for_shares = row[0]
-                            if price_for_shares and price_for_shares > 0:
-                                suggested_shares = suggested_amount / price_for_shares
-                            else:
-                                suggested_shares = suggested_amount / 1.0  # fallback
-
                             order = {
                                 "signal_date": current_date,
                                 "target": best.get("code", ""),
                                 "target_type": "ETF",
                                 "target_name": best.get("name", ""),
                                 "action": "BUY",
-                                "shares": round(suggested_shares, 2),
+                                "suggested_amount": round(suggested_amount, 2),
                                 "suggested_position_pct": pos_pct,
                                 "status": "PENDING",
                             }
@@ -795,7 +796,7 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                   f"成交={len(fills)} "
                   f"待执={len(ctx.pending_orders)}")
 
-    # 最终报告
+    # 最终报告（全部写入 ctx.replay_dir，不再使用全局 OUTPUT_DIR）
     _write_report(ctx)
     _write_trades_csv(ctx)
     _write_daily_account_csv(ctx)
@@ -834,17 +835,33 @@ def _compute_daily_account(ctx: ReplayContext, current_date: str) -> dict:
     summaries = get_position_summary_all()
     con = sqlite3.connect(str(cfg.DB_PATH))
 
-    # 当日已平仓记录（截至 current_date）
-    realized_rows = con.execute(
+    # 已实现盈亏 = REDUCE/SELL 实际收入 - 比例成本
+    # 不再使用 closed BUY 行的 (close_price-price)*shares
+    # 因为 close_trade_by_target 会按全部原始 BUY 股数结算（含已 REDUCE 部分）
+    realized_pnl = 0.0
+    target_rows = con.execute(
         """
-        SELECT COALESCE(SUM((close_price - price) * shares), 0) AS realized
-        FROM live_trades
-        WHERE action IN ('BUY', 'ADD') AND closed = 1
-          AND close_date <= ?
+        SELECT DISTINCT target FROM live_trades
+        WHERE action IN ('REDUCE', 'SELL') AND closed = 1 AND close_date <= ?
         """,
         (current_date.replace("-", ""),),
-    ).fetchone()
-    realized_pnl = realized_rows[0] or 0.0
+    ).fetchall()
+    for (t,) in target_rows:
+        buy_info = con.execute(
+            """SELECT COALESCE(SUM(shares),0), COALESCE(SUM(amount),0)
+               FROM live_trades WHERE target=? AND action IN ('BUY','ADD')
+               AND closed=1 AND close_date <= ?""",
+            (t, current_date.replace("-", "")),
+        ).fetchone()
+        sell_info = con.execute(
+            """SELECT COALESCE(SUM(shares),0), COALESCE(SUM(amount),0)
+               FROM live_trades WHERE target=? AND action IN ('REDUCE','SELL')
+               AND closed=1 AND close_date <= ?""",
+            (t, current_date.replace("-", "")),
+        ).fetchone()
+        if buy_info and buy_info[0] and buy_info[0] > 0 and sell_info and sell_info[0] and sell_info[0] > 0:
+            avg_cost = buy_info[1] / buy_info[0]
+            realized_pnl += sell_info[1] - avg_cost * sell_info[0]
 
     # 未平仓标的的当前市价 → gross_exposure + unrealized_pnl
     gross_exposure = 0.0
@@ -956,8 +973,8 @@ def _check_invariants(ctx: ReplayContext, today: str):
 
 def _write_report(ctx: ReplayContext):
     """生成总结报告"""
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    path = OUTPUT_DIR / "replay_report.md"
+    ctx.replay_dir.mkdir(parents=True, exist_ok=True)
+    path = ctx.replay_dir / "replay_report.md"
 
     import v0_6.core.config as cfg
     source_hash = ctx.sha256(ctx.source_db)
@@ -1039,13 +1056,13 @@ def _write_report(ctx: ReplayContext):
     lines.append("---")
     lines.append("*生成于 " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "*")
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    ctx.replay_dir.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
     print(f"\n  📄 报告: {path}")
 
 
 def _write_trades_csv(ctx: ReplayContext):
-    path = OUTPUT_DIR / "trades.csv"
+    path = ctx.replay_dir / "trades.csv"
     with open(str(path), "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["fill_date", "target", "target_type", "action", "shares", "price", "amount",
@@ -1061,7 +1078,7 @@ def _write_trades_csv(ctx: ReplayContext):
 
 
 def _write_daily_account_csv(ctx: ReplayContext):
-    path = OUTPUT_DIR / "daily_account.csv"
+    path = ctx.replay_dir / "daily_account.csv"
     with open(str(path), "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["date", "gross_exposure", "position_count", "realized_pnl", "unrealized_pnl",
@@ -1086,7 +1103,7 @@ def _write_daily_account_csv(ctx: ReplayContext):
 
 
 def _write_signals_csv(ctx: ReplayContext):
-    path = OUTPUT_DIR / "signals.csv"
+    path = ctx.replay_dir / "signals.csv"
     with open(str(path), "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["date", "industry", "priority", "breadth", "vol_ratio"])
@@ -1095,7 +1112,7 @@ def _write_signals_csv(ctx: ReplayContext):
 
 
 def _write_orders_csv(ctx: ReplayContext):
-    path = OUTPUT_DIR / "orders.csv"
+    path = ctx.replay_dir / "orders.csv"
     with open(str(path), "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["signal_date", "target", "target_type", "action", "shares", "status"])
@@ -1104,7 +1121,7 @@ def _write_orders_csv(ctx: ReplayContext):
 
 
 def _write_monitoring_actions_csv(ctx: ReplayContext):
-    path = OUTPUT_DIR / "monitoring_actions.csv"
+    path = ctx.replay_dir / "monitoring_actions.csv"
     with open(str(path), "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["date", "target", "target_type", "action", "priority"])
@@ -1113,7 +1130,7 @@ def _write_monitoring_actions_csv(ctx: ReplayContext):
 
 
 def _write_blocked_days_csv(ctx: ReplayContext):
-    path = OUTPUT_DIR / "blocked_days.csv"
+    path = ctx.replay_dir / "blocked_days.csv"
     with open(str(path), "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["date", "errors", "position_errors"])
@@ -1122,7 +1139,7 @@ def _write_blocked_days_csv(ctx: ReplayContext):
 
 
 def _write_invariant_violations_csv(ctx: ReplayContext):
-    path = OUTPUT_DIR / "invariant_violations.csv"
+    path = ctx.replay_dir / "invariant_violations.csv"
     with open(str(path), "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["date", "check", "target", "detail"])
