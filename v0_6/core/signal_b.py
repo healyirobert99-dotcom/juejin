@@ -78,7 +78,7 @@ def detect_stabilizing_b(
     3. 行业平均 20 日涨幅 > 0
     4. 过去 60 日内多数（≥30 日）宽度低于 35%
     5. 同一行业 60 日冷却
-    6. 行业股票数 ≥ 5（小行业过滤）
+    6. 行业股票数 ≥ 20（小行业过滤）
     """
     rows = []
     breadth_threshold = RULES["signal"]["breadth_threshold"]

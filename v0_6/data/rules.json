@@ -21,7 +21,7 @@
   "signal": {
     "breadth_threshold": 0.35,
     "vol_ratio_threshold": 1.0,
-    "min_stocks_per_industry": 5,
+    "min_stocks_per_industry": 20,
     "lookback_days": 60,
     "lookback_low_threshold": 0.5
   }
