@@ -835,33 +835,14 @@ def _compute_daily_account(ctx: ReplayContext, current_date: str) -> dict:
     summaries = get_position_summary_all()
     con = sqlite3.connect(str(cfg.DB_PATH))
 
-    # 已实现盈亏 = REDUCE/SELL 实际收入 - 比例成本
-    # 不再使用 closed BUY 行的 (close_price-price)*shares
-    # 因为 close_trade_by_target 会按全部原始 BUY 股数结算（含已 REDUCE 部分）
-    realized_pnl = 0.0
-    target_rows = con.execute(
-        """
-        SELECT DISTINCT target FROM live_trades
-        WHERE action IN ('REDUCE', 'SELL') AND closed = 1 AND close_date <= ?
-        """,
-        (current_date.replace("-", ""),),
-    ).fetchall()
-    for (t,) in target_rows:
-        buy_info = con.execute(
-            """SELECT COALESCE(SUM(shares),0), COALESCE(SUM(amount),0)
-               FROM live_trades WHERE target=? AND action IN ('BUY','ADD')
-               AND closed=1 AND close_date <= ?""",
-            (t, current_date.replace("-", "")),
-        ).fetchone()
-        sell_info = con.execute(
-            """SELECT COALESCE(SUM(shares),0), COALESCE(SUM(amount),0)
-               FROM live_trades WHERE target=? AND action IN ('REDUCE','SELL')
-               AND closed=1 AND close_date <= ?""",
-            (t, current_date.replace("-", "")),
-        ).fetchone()
-        if buy_info and buy_info[0] and buy_info[0] > 0 and sell_info and sell_info[0] and sell_info[0] > 0:
-            avg_cost = buy_info[1] / buy_info[0]
-            realized_pnl += sell_info[1] - avg_cost * sell_info[0]
+    # 已实现盈亏 = ctx.trades 中每笔成交的 realized_pnl 累计
+    # 使用 ctx.trades（回放引擎实时记录，REDUCE 成交即写入）而非 DB 查询
+    # （REDUCE 在最终 SELL 前 closed=0，DB 查询无法看到其 realized_pnl）
+    realized_pnl = sum(
+        float(t.get("realized_pnl", 0) or 0)
+        for t in ctx.trades
+        if t.get("fill_date", "") <= current_date
+    )
 
     # 未平仓标的的当前市价 → gross_exposure + unrealized_pnl
     gross_exposure = 0.0
@@ -917,9 +898,10 @@ def _compute_daily_account(ctx: ReplayContext, current_date: str) -> dict:
     ).fetchone()
     recovered = recovered_rows[0] or 0.0
 
-    # 现金估算 = 参考本金 + 已实现盈亏 - 累计净投入（已平仓 + 未平仓）
-    # 已实现盈亏已含已平仓建仓成本的回收，因此现金 = 本金 - 未平仓成本
-    cash_estimate = ctx.reference_capital - (invested - recovered - realized_pnl)
+    # 现金估算 = 参考本金 - 累计买入 + 累计卖出回收
+    # recovered 已包含 REDUCE/SELL 的实际成交收入（含利润）
+    # 不应再加 realized_pnl（利润已在 recovered 中体现）
+    cash_estimate = ctx.reference_capital - invested + recovered
 
     con.close()
 
