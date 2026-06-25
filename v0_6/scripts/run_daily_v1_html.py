@@ -1087,8 +1087,8 @@ def main():
         if hfq_date and expected.replace("-", "") > hfq_date:
             print(f"  ⚠ daily_hfq 最新 {hfq_date}，预期 {expected}，刷新中...")
             try:
-                from v0_6.scripts.refresh_market_data import main as refresh_main
-                refresh_main()
+                from v0_6.scripts.refresh_market_data import refresh_all
+                refresh_all()
             except Exception as e:
                 print(f"  ❌ 刷新失败，进入数据阻断流程: {e}")
 

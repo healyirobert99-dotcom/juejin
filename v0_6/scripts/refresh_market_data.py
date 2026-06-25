@@ -115,27 +115,27 @@ def refresh_daily_hfq(pro, dry_run: bool = False) -> dict:
         result["error"] = "未配置 JUEJIN_HFQ_SOURCE_DB，无法同步 daily_hfq"
         return result
 
-    # dry-run 只读预览
+    # dry-run 只读预览 — 先用独立连接，关闭后不再使用
+    if dry_run:
+        src_tmp = sqlite3.connect(source_db)
+        src_max = src_tmp.execute("SELECT MAX(trade_date) FROM daily_hfq").fetchone()
+        src_count = src_tmp.execute("SELECT COUNT(*) FROM daily_hfq").fetchone()
+        sm = src_max[0] if src_max else None
+        sc = src_count[0] if src_count else 0
+        result["source_max"] = sm
+        result["source_rows"] = sc
+        if sm:
+            local_max = get_table_latest_date("daily_hfq") or "00000000"
+            pending = src_tmp.execute(
+                "SELECT COUNT(*) FROM daily_hfq WHERE trade_date >= ?",
+                (local_max,),
+            ).fetchone()
+            result["pending_rows"] = pending[0] if pending else 0
+        src_tmp.close()
+        return result
+
     try:
-        src = sqlite3.connect(source_db) if not dry_run else None
-        if dry_run:
-            # 只统计待同步日期和行数
-            src_tmp = sqlite3.connect(source_db)
-            src_max = src_tmp.execute("SELECT MAX(trade_date) FROM daily_hfq").fetchone()
-            src_rows = src_tmp.execute("SELECT COUNT(*) FROM daily_hfq").fetchone()
-            src_tmp.close()
-            result["source_max"] = src_max[0] if src_max else None
-            result["source_rows"] = src_rows[0] if src_rows else 0
-
-            if src_max and src_max[0]:
-                local_max = get_table_latest_date("daily_hfq") or "00000000"
-                pending = src_tmp.execute(
-                    "SELECT COUNT(*) FROM daily_hfq WHERE trade_date >= ?",
-                    (local_max,),
-                ).fetchone()
-                result["pending_rows"] = pending[0] if pending else 0
-            return result
-
+        src = sqlite3.connect(source_db)
         dst = sqlite3.connect(str(STOCK_DATA_DB))
         # 确保表存在
         dst.execute("""
@@ -236,17 +236,24 @@ def refresh_stock_daily_raw(pro, dry_run: bool = False) -> dict:
             return result
         start_date = cal_rows[-1][0]
 
-    # 确定终止日期
+    # 终止日期 = 今天或今天以前最近一个已开市日期（不让未来日期）
+    today_str = datetime.now().strftime("%Y%m%d")
     con = sqlite3.connect(str(STOCK_DATA_DB))
     if _has_table(con, "market_calendar"):
         end_row = con.execute(
-            "SELECT MAX(cal_date) FROM market_calendar WHERE is_open=1"
+            "SELECT MAX(cal_date) FROM market_calendar WHERE is_open=1 AND cal_date <= ?",
+            (today_str,),
         ).fetchone()
         con.close()
-        end_date = end_row[0] if end_row and end_row[0] else datetime.now().strftime("%Y%m%d")
+        if end_row and end_row[0]:
+            end_date = end_row[0]
+        else:
+            result["ok"] = False
+            result["error"] = "无法确定终止日期（无今天或以前的开市日）"
+            return result
     else:
         con.close()
-        end_date = datetime.now().strftime("%Y%m%d")
+        end_date = today_str
 
     if start_date >= end_date:
         result["rows_added"] = 0
@@ -339,104 +346,182 @@ def refresh_stock_daily_raw(pro, dry_run: bool = False) -> dict:
 # ── 4. etf_daily ──
 
 def refresh_etf_daily(pro, dry_run: bool = False) -> dict:
-    """增量更新 etf_daily（使用统一后缀函数）"""
+    """增量更新 etf_daily（统一后缀，按日原子提交）
+
+    每日期：
+    1. 从 ETF 目录今日全部代码
+    2. 开放持仓 ETF 优先
+    3. 完整校验后再提交
+    4. 任何开放持仓 ETF 失败 → 该日回滚
+    """
     result = {"table": "etf_daily", "rows_added": 0, "ok": True, "error": None}
 
     etf_rows = load_sector_etf_rows()
-    # 去重取 ETF 代码
     etf_codes = list({r["code"] for r in etf_rows if r["code"]})
     if not etf_codes:
         result["ok"] = False
         result["error"] = "sector_etf_map.csv 无有效 ETF 代码"
         return result
 
-    # 标准化后缀
     normalized = []
     for c in etf_codes:
         try:
             normalized.append(normalize_etf_ts_code(c))
         except ValueError:
-            result["warnings"] = result.get("warnings", [])
-            result["warnings"].append(f"跳过无效 ETF 代码 {c}")
+            result.setdefault("warnings", []).append(f"跳过无效 ETF 代码 {c}")
 
     if not normalized:
         result["ok"] = False
         result["error"] = "所有 ETF 代码均无法标准化"
         return result
 
-    local_max = get_table_latest_date("etf_daily")
-    if local_max is None or local_max < "20000101":
-        start_date = "20150101"
-    else:
-        start_date = local_max
+    # 获取开放持仓 ETF
+    open_etf_codes = set()
+    try:
+        from v0_6.core import get_position_summary_all
+        for pos in get_position_summary_all():
+            if pos.get("target_type") == "ETF":
+                try:
+                    open_etf_codes.add(normalize_etf_ts_code(pos["target"]))
+                except ValueError:
+                    pass
+    except Exception:
+        pass
 
-    end_date = datetime.now().strftime("%Y%m%d")
+    # 确定待拉取的交易日
+    local_max = get_table_latest_date("etf_daily")
+    start_date = local_max if (local_max and local_max >= "20150101") else "20150101"
+
+    today_str = datetime.now().strftime("%Y%m%d")
+    con = sqlite3.connect(str(STOCK_DATA_DB))
+    if _has_table(con, "market_calendar"):
+        trade_dates = con.execute(
+            "SELECT cal_date FROM market_calendar WHERE is_open=1 AND cal_date > ? AND cal_date <= ? ORDER BY cal_date",
+            (start_date, today_str),
+        ).fetchall()
+    else:
+        trade_dates = []
+    con.close()
 
     if dry_run:
         result["rows_added"] = -1
-        result["range"] = f"{start_date} → {end_date}"
+        result["range"] = f"{start_date} → {today_str}"
         result["etf_count"] = len(normalized)
+        result["pending_dates"] = len(trade_dates)
         return result
 
-    try:
-        con = sqlite3.connect(str(STOCK_DATA_DB))
-        _ensure_table(con, """
-            CREATE TABLE IF NOT EXISTS etf_daily (
-                ts_code TEXT NOT NULL,
-                trade_date TEXT NOT NULL,
-                close REAL,
-                vol REAL,
-                amount REAL,
-                PRIMARY KEY (ts_code, trade_date)
-            )
-        """)
-        con.execute("CREATE INDEX IF NOT EXISTS idx_etf_daily_code ON etf_daily(ts_code)")
-        con.commit()
+    if not trade_dates:
+        result["rows_added"] = 0
+        return result
 
-        total = 0
-        failed = []
-        for ts_code in normalized:
+    dst = sqlite3.connect(str(STOCK_DATA_DB))
+    _ensure_table(dst, """
+        CREATE TABLE IF NOT EXISTS etf_daily (
+            ts_code TEXT NOT NULL, trade_date TEXT NOT NULL,
+            close REAL, vol REAL, amount REAL,
+            PRIMARY KEY (ts_code, trade_date)
+        )
+    """)
+    dst.execute("CREATE INDEX IF NOT EXISTS idx_etf_daily_code ON etf_daily(ts_code)")
+    dst.commit()
+
+    total_added = 0
+    # 逐日处理
+    for (td_str,) in trade_dates:
+        # 1) 逐只 ETF 拉取该日数据
+        day_rows = []
+        day_failed = []
+        # 开放持仓 ETF 优先拉取
+        ordered_codes = sorted(normalized, key=lambda c: (0 if c in open_etf_codes else 1))
+        for ts_code in ordered_codes:
             try:
-                df = pro.fund_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+                df = pro.fund_daily(ts_code=ts_code, start_date=td_str, end_date=td_str)
             except Exception:
-                # fallback: pro.daily
                 try:
-                    df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+                    df = pro.daily(ts_code=ts_code, start_date=td_str, end_date=td_str)
                 except Exception as e:
-                    failed.append((ts_code, str(e)))
+                    day_failed.append((ts_code, str(e)))
                     continue
             if df is None or df.empty:
-                failed.append((ts_code, "empty"))
+                day_failed.append((ts_code, "empty"))
                 continue
-            rows = [
-                (r["ts_code"], r["trade_date"],
-                 float(r["close"]) if r["close"] is not None else None,
-                 float(r["vol"]) if r["vol"] is not None else None,
-                 float(r["amount"]) if r["amount"] is not None else None)
-                for _, r in df.iterrows()
-            ]
-            con.executemany(
-                "INSERT OR REPLACE INTO etf_daily (ts_code, trade_date, close, vol, amount) VALUES (?, ?, ?, ?, ?)",
-                rows,
-            )
-            total += len(rows)
-            time.sleep(0.3)
+            row = (ts_code, td_str,
+                   float(df["close"].iloc[0]) if df["close"].iloc[0] is not None else None,
+                   float(df["vol"].iloc[0]) if df["vol"].iloc[0] is not None else None,
+                   float(df["amount"].iloc[0]) if df["amount"].iloc[0] is not None else None)
+            day_rows.append(row)
+            time.sleep(0.15)
 
-        con.commit()
-        result["rows_added"] = total
-        if failed:
-            result["failed"] = failed
+        # 2) 检查开放持仓 ETF 是否全部成功
+        open_failed = [c for c, _ in day_failed if c in open_etf_codes]
+        if open_failed:
+            dst.close()
             result["ok"] = False
-            result["error"] = f"{len(failed)}/{len(normalized)} 个 ETF 更新失败"
-        con.close()
-    except Exception as e:
-        result["ok"] = False
-        result["error"] = str(e)
+            result["error"] = (
+                f"日期 {td_str}: 开放持仓 ETF {open_failed} 更新失败，该日回滚"
+            )
+            result["failed"] = day_failed
+            return result
 
+        # 3) 原子写入
+        try:
+            dst.execute("BEGIN")
+            dst.execute("DELETE FROM etf_daily WHERE trade_date = ?", (td_str,))
+            dst.executemany(
+                "INSERT INTO etf_daily (ts_code, trade_date, close, vol, amount) VALUES (?, ?, ?, ?, ?)",
+                day_rows,
+            )
+            dst.execute("COMMIT")
+            total_added += len(day_rows)
+        except Exception as e:
+            dst.execute("ROLLBACK")
+            dst.close()
+            result["ok"] = False
+            result["error"] = f"日期 {td_str} 写入失败: {e}"
+            return result
+
+    dst.close()
+    result["rows_added"] = total_added
+    if result.get("failed"):
+        result["ok"] = False
     return result
 
 
-# ── 主入口 ──
+# ── 5. 程序化刷新入口（不解析 sys.argv）──
+
+def refresh_all(dry_run: bool = False) -> dict:
+    """不解析命令行的程序化刷新，供日报等模块直接调用。
+
+    返回所有子结果的合并 dict。
+    不调用 sys.exit()。
+    """
+    results = {}
+    if not STOCK_DATA_DB.exists():
+        return {"ok": False, "error": "stock_data.db 不存在"}
+    if not TUSHARE_TOKEN:
+        return {"ok": False, "error": "TUSHARE_TOKEN 未配置"}
+
+    import tushare as ts
+    ts.set_token(TUSHARE_TOKEN)
+    pro = ts.pro_api()
+
+    r = refresh_calendar(pro, dry_run=dry_run)
+    results["calendar"] = r
+    r = refresh_daily_hfq(pro, dry_run=dry_run)
+    results["hfq"] = r
+    r = refresh_stock_daily_raw(pro, dry_run=dry_run)
+    results["stock_raw"] = r
+    r = refresh_etf_daily(pro, dry_run=dry_run)
+    results["etf"] = r
+
+    ok = all(rr.get("ok", False) for rr in results.values())
+    merged = {"ok": ok, "results": results}
+    for k, v in results.items():
+        merged[k] = v
+    return merged
+
+
+# ── CLI 入口 ──
 
 def main():
     import argparse
