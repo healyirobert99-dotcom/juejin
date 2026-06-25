@@ -718,7 +718,8 @@ async function lookupTarget() {
 // === 4. 加载未平仓持仓 ===
 async function loadOpenPositions() {
   try {
-    const res = await fetch('/api/open');
+    const url = (currentAction === 'BUY' || currentAction === 'ADD') ? '/api/open' : '/api/open_net';
+    const res = await fetch(url);
     openPositions = await res.json();
     const list = $('#open-list');
     if (!openPositions.length) {
@@ -726,33 +727,44 @@ async function loadOpenPositions() {
       list.classList.add('show');
       return;
     }
-    list.innerHTML = openPositions.map(p => `
-      <div class="open-list-item" data-tid="${p.trade_id}">
-        <span class="oid">#${String(p.trade_id).padStart(2, '0')}</span>
-        <span class="name"><b>${p.target_name || p.target}</b><br><i>${p.target} · ${p.target_type} · 入场 ${p.trade_date}</i></span>
-        <span class="meta">${p.shares ? p.shares.toFixed(0) + '股' : '—'}<br>¥${p.price ? p.price.toFixed(3) : '—'}</span>
-        <span class="meta"><b>${p.progress_bucket || '—'}</b><br>${p.amount ? '¥' + p.amount.toFixed(0) : '—'}</span>
+    list.innerHTML = openPositions.map(p => {
+      const isAgg = (currentAction === 'REDUCE' || currentAction === 'SELL');
+      const tradeId = isAgg ? (p.parent_trade_id || '—') : p.trade_id;
+      const displayShares = isAgg ? (p.total_shares || 0) : (p.shares || 0);
+      const displayPrice = isAgg ? (p.avg_cost || 0) : (p.price || 0);
+      const displayAmount = isAgg ? (displayShares * displayPrice) : (p.amount || 0);
+      return `
+      <div class="open-list-item" data-tid="${tradeId}">
+        <span class="oid">#${String(tradeId).padStart(2, '0')}</span>
+        <span class="name"><b>${p.target_name || p.target}</b><br><i>${p.target} · ${p.target_type} · ${p.first_buy || p.trade_date || ''}</i></span>
+        <span class="meta">${displayShares.toFixed(0)}股<br>¥${displayPrice.toFixed(3)}</span>
+        <span class="meta"><b>${p.progress_bucket || '—'}</b><br>¥${displayAmount.toFixed(0)}</span>
       </div>
-    `).join('');
+    `}).join('');
     list.classList.add('show');
 
     $$('.open-list-item').forEach(item => {
       item.addEventListener('click', async () => {
         const tid = item.dataset.tid;
         $('#f-parent').value = tid;
-        const pos = openPositions.find(p => String(p.trade_id) === tid);
+        const pos = openPositions.find(p => String(p.trade_id || p.parent_trade_id) === tid);
         if (pos) {
-          // 预填
+          // 预填标的
           $('#f-target-input').value = pos.target;
           await lookupTarget();
-          // 算建议金额：减仓 1/3 / 清仓 100%
-          const ratio = (currentAction === 'REDUCE') ? 1/3 : 1;
-          const suggestedAmount = (pos.amount || 0) * ratio;
-          $('#f-amount').value = Math.round(suggestedAmount / 100) * 100;
-          // 默认填当前价格（拉到的最新价）
+          // 用最新价和净股数算建议金额
           if (targetInfo && targetInfo.latest_price) {
-            // 暂存到隐藏字段，提交时用
-            window._suggestedPrice = targetInfo.latest_price;
+            const latestPrice = targetInfo.latest_price;
+            $('#f-price').value = latestPrice.toFixed(4);
+            const ratio = (currentAction === 'REDUCE') ? 1/3 : 1;
+            const totalShares = pos.total_shares || pos.shares || 0;
+            const suggestedShares = totalShares * ratio;
+            const suggestedAmount = suggestedShares * latestPrice;
+            $('#f-amount').value = suggestedAmount.toFixed(2);
+          } else {
+            // 无最新价时不自动填入
+            $('#f-price').value = '';
+            $('#f-amount').value = '';
           }
         }
       });
@@ -845,6 +857,25 @@ class TradeFormHandler(BaseHTTPRequestHandler):
             try:
                 positions = list_open_positions()
                 self._send(200, "application/json", json.dumps(positions, ensure_ascii=False).encode("utf-8"))
+            except Exception as e:
+                self._send(500, "application/json", json.dumps({"error": str(e)}).encode("utf-8"))
+            return
+        if self.path == "/api/open_net":
+            try:
+                from v0_6.core import get_position_summary_all
+                summaries = get_position_summary_all()
+                # 补查每标的的 parent_trade_id（最早一笔未关 BUY/ADD）
+                con = sqlite3.connect(str(DB_PATH))
+                for s in summaries:
+                    row = con.execute(
+                        "SELECT trade_id FROM live_trades "
+                        "WHERE target = ? AND target_type = ? AND action IN ('BUY','ADD') AND closed = 0 "
+                        "ORDER BY trade_id ASC LIMIT 1",
+                        (s["target"], s["target_type"]),
+                    ).fetchone()
+                    s["parent_trade_id"] = row[0] if row else None
+                con.close()
+                self._send(200, "application/json", json.dumps(summaries, ensure_ascii=False).encode("utf-8"))
             except Exception as e:
                 self._send(500, "application/json", json.dumps({"error": str(e)}).encode("utf-8"))
             return
@@ -996,22 +1027,28 @@ class TradeFormHandler(BaseHTTPRequestHandler):
                         "请检查 trade_id 是否已平仓。"
                     )
 
-                # 用实际成交价关闭该 target 的全部持仓
-                close_price = price
-                shares = amount / price
-                summary = close_trade_by_target(row["target"], close_price, date)
+                # 获取真实剩余净持仓
+                net = get_position_net(row["target"])
+                sell_shares = net["net_shares"]
+                if sell_shares <= 0:
+                    raise ValueError(f"标的 '{row['target']}' 当前无净持仓，不允许清仓")
+                sell_amount = sell_shares * price
 
+                # 先写 SELL 记录（closed=0）
                 trade_id = add_trade(
                     target=row["target"],
                     target_type=row["target_type"],
                     target_name=row["target_name"],
                     action="SELL",
-                    amount=amount,
+                    amount=sell_amount,
                     price=price,
-                    shares=shares,
+                    shares=sell_shares,
                     trade_date=date,
                     notes=notes or f"清仓离场 {row['target']}",
                 )
+
+                # 再关闭该 target 的全部未平仓记录（包括刚写入的 SELL）
+                close_trade_by_target(row["target"], price, date)
             else:
                 raise ValueError(f"未知 action: {action}")
 

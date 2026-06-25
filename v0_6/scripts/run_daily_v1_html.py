@@ -692,9 +692,38 @@ def fmt_price(x):
 # ============== 持仓卡片渲染 ==============
 
 def render_position_card(r: dict) -> str:
-    """单笔持仓——编辑风双栏（行业名 + 收益率；下方落建议）"""
+    """单笔持仓——编辑风双栏（行业名 + 收益率；下方落建议）
+
+    异常持仓（error）显示最小异常卡片，不显示价格/盈亏/止损止盈。
+    """
     if "error" in r:
-        return ""
+        error_type = r["error"]
+        target_label = r.get("name") or r.get("target_name") or r.get("target", "?")
+        entry_date = r.get("entry_date", "?")
+        target_type = r.get("target_type", "?")
+        # 优先使用 alert 消息
+        alerts = r.get("alerts", [])
+        err_msg = alerts[0].get("message", "") if alerts else ""
+        if not err_msg:
+            err_map = {
+                "no_price_data": "暂无可用行情，无法计算盈亏、止损和止盈，请检查行情数据。",
+                "industry_not_executable": "该记录是行业而非可交易标的，请人工核对。",
+                "unknown_target_type": "标的类型无法识别，请人工核对历史记录。",
+            }
+            err_msg = err_map.get(error_type, f"状态异常: {error_type}")
+        return f"""
+<article class="ledger ERROR">
+  <div class="led-left">
+    <div class="led-name" style="color:var(--ink-3);">{target_label}</div>
+    <span class="led-action-tag ERROR">⚠ {error_type}</span>
+  </div>
+  <div class="led-right">
+    <div class="led-stops">类型 {target_type} · 入场 {entry_date}</div>
+    <div class="led-stops" style="font-size:11px;color:var(--accent);">{err_msg}</div>
+  </div>
+  <div class="led-advice" style="background:transparent;color:var(--ink-3);">暂不计算盈亏 · 请人工处理</div>
+</article>
+"""
     action = r.get("action", "HOLD")
     ret = r.get("return_pct", 0)
     ret_class = "positive" if ret >= 0 else "negative"
