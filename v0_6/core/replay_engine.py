@@ -61,7 +61,7 @@ class ReplayContext:
 
         严格保证：每次 setup 都会得到一个**全新的、空的**回放库
         - 行情库：用源库结构，行情表清空
-        - 交易库：删除旧文件并重建
+        - 交易库：复制真实项目 DB（含 stock_basic 等引用表），清空 live_trades
         """
         global _ORIG_DB_PATH, _ORIG_STOCK_DB
         import v0_6.core.config as cfg
@@ -92,10 +92,34 @@ class ReplayContext:
         con.commit()
         con.close()
 
+        # 2.5) 从真实项目 DB 复制 stock_basic 引用表到回放交易库
+        # signal_b.load_raw_daily 需从 DB_PATH 读 stock_basic
+        if _ORIG_DB_PATH and _ORIG_DB_PATH.exists():
+            con_orig = sqlite3.connect(str(_ORIG_DB_PATH))
+            r = con_orig.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='stock_basic'"
+            ).fetchone()
+            if r:
+                con_t = sqlite3.connect(str(self.trade_db))
+                # 复制表结构
+                create_sql = con_orig.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='stock_basic'"
+                ).fetchone()[0]
+                con_t.execute(create_sql)
+                # 复制数据
+                rows = con_orig.execute("SELECT * FROM stock_basic").fetchall()
+                if rows:
+                    cols = len(rows[0])
+                    ph = ",".join("?" * cols)
+                    con_t.executemany(f"INSERT INTO stock_basic VALUES ({ph})", rows)
+                con_t.commit()
+                con_t.close()
+            con_orig.close()
+
         # 3) 注入生产路径
         self.inject_prod_paths()
 
-        # 4) 创建空回放交易库（路径已被 inject_prod_paths 指向 self.trade_db）
+        # 4) 创建空 live_trades 表
         from v0_6.core import init_schema
         init_schema()
 

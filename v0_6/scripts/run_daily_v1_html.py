@@ -1139,7 +1139,7 @@ def main():
 
     # 同时重建档案索引
     try:
-        from scripts.build_archive import main as build_archive_main
+        from v0_6.scripts.build_archive import main as build_archive_main
         build_archive_main()
     except Exception as e:
         print(f"  ⚠️ 档案索引更新失败: {e}")

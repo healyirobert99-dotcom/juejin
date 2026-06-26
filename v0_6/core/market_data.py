@@ -96,7 +96,8 @@ def get_expected_trade_date(requested_date: str) -> str | None:
     # 检查覆盖范围
     max_cal = cal["cal_date"].max()
     if target > max_cal:
-        return None  # 日历覆盖不足
+        # 日历覆盖不足（数据未刷新到请求日期），返回最新可用日期
+        return max_cal.strftime("%Y-%m-%d")
     eligible = cal[cal["cal_date"] <= target]
     if eligible.empty:
         return None

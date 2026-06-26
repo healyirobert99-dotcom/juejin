@@ -12,13 +12,23 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from .config import DB_PATH, RULES, STOCK_DATA_DB
+from . import config
+
+# 运行时引用（不早绑），回放引擎可在运行时切换 DB_PATH/STOCK_DATA_DB
+def _stock_db():
+    return config.STOCK_DATA_DB
+
+def _proj_db():
+    return config.DB_PATH
+
+def _rules():
+    return config.RULES
 
 
 def load_raw_daily(start: str = "2010-01-01", end: str = "2026-06-30") -> pd.DataFrame:
     """从 stock_data.db 加载原始日线（16 年全量）"""
-    con = sqlite3.connect(str(STOCK_DATA_DB), uri=False)
-    con_l = sqlite3.connect(str(DB_PATH), uri=False)
+    con = sqlite3.connect(str(_stock_db()), uri=False)
+    con_l = sqlite3.connect(str(_proj_db()), uri=False)
     sb = pd.read_sql_query("SELECT symbol, ts_code, industry FROM stock_basic", con_l)
     con_l.close()
 
@@ -59,7 +69,7 @@ def compute_industry_daily_metrics(sd: pd.DataFrame) -> pd.DataFrame:
         avg_ret20=("ret_20d", "mean"),
         median_ret20=("ret_20d", "median"),
     ).reset_index()
-    daily = daily[daily["n"] >= RULES["signal"]["min_stocks_per_industry"]].copy()
+    daily = daily[daily["n"] >= _rules()["signal"]["min_stocks_per_industry"]].copy()
     return daily
 
 
@@ -81,8 +91,8 @@ def detect_stabilizing_b(
     6. 行业股票数 ≥ 20（小行业过滤）
     """
     rows = []
-    breadth_threshold = RULES["signal"]["breadth_threshold"]
-    vol_ratio_threshold = RULES["signal"]["vol_ratio_threshold"]
+    breadth_threshold = _rules()["signal"]["breadth_threshold"]
+    vol_ratio_threshold = _rules()["signal"]["vol_ratio_threshold"]
     for ind, g in daily.groupby("industry"):
         g = g.sort_values("trade_date").reset_index(drop=True)
         if len(g) < warmup_days + lookback_days:
@@ -116,6 +126,11 @@ def detect_stabilizing_b(
                 }
             )
             last_trigger = i
+    if not rows:
+        return pd.DataFrame(columns=[
+            "industry", "signal_date", "signal_type", "breadth_at_signal",
+            "vol_ratio_at_signal", "avg_ret20_at_signal", "n_low_in_past_60d", "n_stocks",
+        ])
     return pd.DataFrame(rows)
 
 

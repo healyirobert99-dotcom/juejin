@@ -105,68 +105,184 @@ def refresh_daily_hfq(pro, dry_run: bool = False) -> dict:
     """同步 daily_hfq（支持同日补齐）
 
     优先从 JUEJIN_HFQ_SOURCE_DB 同步；从 local_max 起始（含当天）。
+    未配置时回退到 Tushare pro.daily() 按交易日拉取。
     每日期原子提交。
     """
     result = {"table": "daily_hfq", "rows_added": 0, "ok": True, "error": None}
     source_db = os.getenv("JUEJIN_HFQ_SOURCE_DB")
 
-    if not source_db or not Path(source_db).exists():
+    if source_db and Path(source_db).exists():
+        # ── 从外部库同步（原有逻辑） ──
+        if dry_run:
+            src_tmp = sqlite3.connect(source_db)
+            src_max = src_tmp.execute("SELECT MAX(trade_date) FROM daily_hfq").fetchone()
+            src_count = src_tmp.execute("SELECT COUNT(*) FROM daily_hfq").fetchone()
+            sm = src_max[0] if src_max else None
+            sc = src_count[0] if src_count else 0
+            result["source_max"] = sm
+            result["source_rows"] = sc
+            if sm:
+                local_max = get_table_latest_date("daily_hfq") or "00000000"
+                pending = src_tmp.execute(
+                    "SELECT COUNT(*) FROM daily_hfq WHERE trade_date >= ?",
+                    (local_max,),
+                ).fetchone()
+                result["pending_rows"] = pending[0] if pending else 0
+            src_tmp.close()
+            return result
+
+        try:
+            src = sqlite3.connect(source_db)
+            dst = sqlite3.connect(str(STOCK_DATA_DB))
+            dst.execute("""
+                CREATE TABLE IF NOT EXISTS daily_hfq (
+                    ts_code TEXT NOT NULL, trade_date TEXT NOT NULL,
+                    close REAL, vol REAL,
+                    PRIMARY KEY (ts_code, trade_date)
+                )
+            """)
+            dst.commit()
+
+            local_max = get_table_latest_date("daily_hfq") or "00000000"
+            src_rows = src.execute(
+                "SELECT ts_code, trade_date, close, vol FROM daily_hfq "
+                "WHERE trade_date >= ? ORDER BY trade_date",
+                (local_max,),
+            ).fetchall()
+
+            if not src_rows:
+                src.close()
+                dst.close()
+                return result
+
+            from collections import defaultdict
+            by_date: dict[str, list] = defaultdict(list)
+            for r in src_rows:
+                by_date[r[1]].append(r)
+
+            total_added = 0
+            for td, rows in sorted(by_date.items()):
+                if not rows:
+                    continue
+                dst.execute("BEGIN")
+                dst.execute("DELETE FROM daily_hfq WHERE trade_date = ?", (td,))
+                dst.executemany(
+                    "INSERT INTO daily_hfq (ts_code, trade_date, close, vol) VALUES (?, ?, ?, ?)",
+                    [(r[0], r[1], r[2], r[3]) for r in rows],
+                )
+                dst.execute("COMMIT")
+                total_added += len(rows)
+
+            src.close()
+            dst.close()
+            result["rows_added"] = total_added
+            result["source"] = source_db
+            return result
+        except Exception as e:
+            result["ok"] = False
+            result["error"] = str(e)
+            return result
+
+    # ── 未配置外部源 → 回退到 Tushare daily API ──
+    # Tushare pro.daily(trade_date=td) 返回当日全市场复权日线
+    local_max = get_table_latest_date("daily_hfq")
+    if not local_max:
         result["ok"] = False
-        result["error"] = "未配置 JUEJIN_HFQ_SOURCE_DB，无法同步 daily_hfq"
+        result["error"] = "daily_hfq 无本地数据，无法确定增量起点"
         return result
 
-    # dry-run 只读预览 — 先用独立连接，关闭后不再使用
+    # 终止日期
+    today_str = datetime.now().strftime("%Y%m%d")
+    con = sqlite3.connect(str(STOCK_DATA_DB))
+    if _has_table(con, "market_calendar"):
+        end_row = con.execute(
+            "SELECT MAX(cal_date) FROM market_calendar WHERE is_open=1 AND cal_date <= ?",
+            (today_str,),
+        ).fetchone()
+        con.close()
+        if end_row and end_row[0]:
+            end_date = end_row[0]
+        else:
+            result["ok"] = False
+            result["error"] = "无法确定终止日期（无今天或以前的开市日）"
+            return result
+    else:
+        con.close()
+        end_date = today_str
+
+    if local_max >= end_date:
+        result["rows_added"] = 0
+        return result
+
     if dry_run:
-        src_tmp = sqlite3.connect(source_db)
-        src_max = src_tmp.execute("SELECT MAX(trade_date) FROM daily_hfq").fetchone()
-        src_count = src_tmp.execute("SELECT COUNT(*) FROM daily_hfq").fetchone()
-        sm = src_max[0] if src_max else None
-        sc = src_count[0] if src_count else 0
-        result["source_max"] = sm
-        result["source_rows"] = sc
-        if sm:
-            local_max = get_table_latest_date("daily_hfq") or "00000000"
-            pending = src_tmp.execute(
-                "SELECT COUNT(*) FROM daily_hfq WHERE trade_date >= ?",
-                (local_max,),
-            ).fetchone()
-            result["pending_rows"] = pending[0] if pending else 0
-        src_tmp.close()
+        result["rows_added"] = -1
+        result["range"] = f"{local_max} → {end_date}"
+        result["source"] = "tushare_daily"
         return result
 
     try:
-        src = sqlite3.connect(source_db)
         dst = sqlite3.connect(str(STOCK_DATA_DB))
-        # 确保表存在
         dst.execute("""
             CREATE TABLE IF NOT EXISTS daily_hfq (
                 ts_code TEXT NOT NULL, trade_date TEXT NOT NULL,
-                close REAL, vol REAL, amount REAL,
+                close REAL, vol REAL,
                 PRIMARY KEY (ts_code, trade_date)
             )
         """)
         dst.commit()
 
-        local_max = get_table_latest_date("daily_hfq") or "00000000"
-        # 从 local_max 起始（含当天 — 支持同日补齐）
-        src_rows = src.execute(
-            "SELECT ts_code, trade_date, close, vol, amount FROM daily_hfq "
-            "WHERE trade_date >= ? ORDER BY trade_date",
-            (local_max,),
+        # 获取需要拉取的天数
+        cal_con = sqlite3.connect(str(STOCK_DATA_DB))
+        trade_dates = cal_con.execute(
+            "SELECT cal_date FROM market_calendar WHERE is_open=1 AND cal_date > ? AND cal_date <= ? ORDER BY cal_date",
+            (local_max, end_date),
         ).fetchall()
-
-        if not src_rows:
-            src.close()
-            dst.close()
-            return result
-
-        # 按日期分组，逐日事务
-        from collections import defaultdict
-        by_date: dict[str, list] = defaultdict(list)
-        for r in src_rows:
-            by_date[r[1]].append(r)
+        cal_con.close()
 
         total_added = 0
+        for (td,) in trade_dates:
+            try:
+                df = pro.daily(trade_date=td)
+                if df is None or df.empty:
+                    continue
+                rows = [
+                    (r["ts_code"], r["trade_date"],
+                     float(r["close"]) if r["close"] is not None else None,
+                     float(r["vol"]) if r["vol"] is not None else None)
+                    for _, r in df.iterrows()
+                ]
+                dst.execute("BEGIN")
+                dst.execute("DELETE FROM daily_hfq WHERE trade_date = ?", (td,))
+                dst.executemany(
+                    "INSERT INTO daily_hfq (ts_code, trade_date, close, vol) VALUES (?, ?, ?, ?)",
+                    rows,
+                )
+                inserted = dst.execute(
+                    "SELECT COUNT(*) FROM daily_hfq WHERE trade_date = ?", (td,)
+                ).fetchone()[0]
+                if inserted != len(rows):
+                    dst.execute("ROLLBACK")
+                    continue
+                dst.execute("COMMIT")
+                total_added += len(rows)
+                print(f"    daily_hfq {td}: {len(rows)} 行")
+            except Exception as e:
+                try:
+                    dst.execute("ROLLBACK")
+                except Exception:
+                    pass
+                result["ok"] = False
+                result["error"] = f"日期 {td} Tushare 拉取失败: {e}"
+                break
+
+        dst.close()
+        result["rows_added"] = total_added
+        result["source"] = "tushare_daily"
+        return result
+    except Exception as e:
+        result["ok"] = False
+        result["error"] = str(e)
+        return result
         for trade_date in sorted(by_date.keys()):
             batch = by_date[trade_date]
             try:
@@ -452,17 +568,16 @@ def refresh_etf_daily(pro, dry_run: bool = False) -> dict:
             day_rows.append(row)
             time.sleep(0.15)
 
-        # 2) 检查更新完整性：任何 ETF 失败都阻断该日提交
-        if day_failed:
+        # 2) 检查更新完整性：开放持仓 ETF 失败才阻断该日
+        #    非持仓 ETF 失败只记录警告，不影响提交
+        open_in_failed = [c for c, _ in day_failed if c in open_etf_codes]
+        if open_in_failed:
             dst.close()
             result["ok"] = False
             result["failed"] = day_failed
-            open_in_failed = [c for c, _ in day_failed if c in open_etf_codes]
-            detail = f"含 {len(open_in_failed)} 个开放持仓 ETF" if open_in_failed else ""
             result["error"] = (
                 f"日期 {td_str}: {len(day_failed)}/{len(normalized)} 个 ETF 更新失败"
-                + (f"（{detail}）" if detail else "")
-                + "，该日未提交"
+                + f"（含 {len(open_in_failed)} 个开放持仓 ETF），该日未提交"
             )
             return result
 
