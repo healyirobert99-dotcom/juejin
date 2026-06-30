@@ -936,7 +936,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
         html.append('  <section class="section">')
         html.append('    <div class="sec-head">')
         html.append('      <span class="sec-num">§ I½</span>')
-        html.append('      <span class="sec-title" style="font-size:22px;">信号雷达 · 接近触发</span>')
+        html.append('      <span class="sec-title" style="font-size:22px;">信号雷达 · 候选观察</span>')
         html.append('      <span class="sec-tag">仅供观察</span>')
         html.append('    </div>')
         html.append('    <p style="font-size:11px;color:var(--ink-3);font-style:italic;margin-bottom:var(--u3);font-family:var(--font-display);letter-spacing:0.05em;">')
@@ -1004,7 +1004,6 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
             {indicators_html}
           </div>
           <div style="font-size:12px;color:var(--ink-3);line-height:1.6;font-family:var(--font-body);">
-            弱势背景：过去 60 日有 <b>{n_low}</b> 日低于 35%&nbsp;·&nbsp;
             近 5 日宽度：<b style="color:{imp_color};">{imp_str}</b>
           </div>
           <div style="font-size:12px;color:var(--ink-2);line-height:1.6;font-family:var(--font-body);margin-top:2px;">
