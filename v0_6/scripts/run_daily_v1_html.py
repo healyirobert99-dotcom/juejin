@@ -25,6 +25,7 @@ V0_6_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(V0_6_ROOT))
 
 from v0_6.core import (
+    build_signal_radar,
     compute_industry_daily_metrics,
     compute_per_stock_indicators,
     detect_stabilizing_b,
@@ -673,7 +674,8 @@ def get_today_signals(signal_data_date: str, lookback_days: int = 3):
     # 信号按 signal_data_date 精确过滤（非自然日）
     # 改为返回 lookback 天内的信号，让 render_html 按 signal_data_date 筛选
     today_dt = pd.to_datetime(signal_data_date)
-    return signals[signals["signal_date"] >= (today_dt - pd.Timedelta(days=lookback_days))]
+    signals_filtered = signals[signals["signal_date"] >= (today_dt - pd.Timedelta(days=lookback_days))]
+    return signals_filtered, signals, daily
 
 
 def fmt_pct(x, signed=True):
@@ -778,7 +780,8 @@ def render_position_card(r: dict) -> str:
 
 # ============== 主渲染 ==============
 
-def render_html(requested_date: str, signal_data_date: str, today_signals: pd.DataFrame, monitoring: list) -> str:
+def render_html(requested_date: str, signal_data_date: str, today_signals: pd.DataFrame,
+                monitoring: list, radar_candidates: list | None = None) -> str:
     sd_dt = pd.to_datetime(signal_data_date)
     today_only = today_signals[today_signals["signal_date"] == sd_dt]
     n_today = len(today_only)
@@ -927,6 +930,84 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
       </article>""")
         html.append('    </div>')
     html.append('  </section>')
+
+    # ===== 2.5 信号雷达 · 接近触发 =====
+    if radar_candidates is not None:
+        html.append('  <section class="section">')
+        html.append('    <div class="sec-head">')
+        html.append('      <span class="sec-num">§ I½</span>')
+        html.append('      <span class="sec-title" style="font-size:22px;">信号雷达 · 接近触发</span>')
+        html.append('      <span class="sec-tag">仅供观察</span>')
+        html.append('    </div>')
+        html.append('    <p style="font-size:11px;color:var(--ink-3);font-style:italic;margin-bottom:var(--u3);font-family:var(--font-display);letter-spacing:0.05em;">')
+        html.append('      未达到正式四因子信号标准 · 当前至少满足 2/3 条件 · 不构成交易建议')
+        html.append('    </p>')
+
+        if not radar_candidates:
+            html.append('    <div class="empty">暂无进入临界区的行业</div>')
+        else:
+            html.append('    <div style="display:flex;flex-direction:column;gap:var(--u3);">')
+            for cand in radar_candidates:
+                ind = cand["industry"]
+                cm = cand["conditions_met"]
+                b = cand["breadth"]
+                vr = cand["vol_ratio"]
+                r20 = cand["avg_ret20"]
+                n_low = cand["n_low_in_past_60d"]
+                imp = cand["breadth_improvement_5d"]
+                missing = cand["missing"]
+
+                # 状态标签
+                if cm == 3:
+                    status_tag = '<span style="font-family:var(--font-display);font-weight:700;font-size:10px;letter-spacing:0.1em;padding:2px 8px;border:1px solid var(--accent-2);color:var(--accent-2);">3/3 齐全</span>'
+                else:
+                    status_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:10px;letter-spacing:0.1em;padding:2px 8px;border:1px solid var(--warn);color:var(--warn);">{cm}/3 临界</span>'
+
+                # 指标行
+                def radar_check(v: bool, label: str, val: str) -> str:
+                    mark = "✓" if v else "×"
+                    color = "var(--accent-2)" if v else "var(--ink-3)"
+                    return f'<span style="font-size:12px;color:{color};white-space:nowrap;"><b>{mark}</b> {label}: {val}</span>'
+
+                b_ok = cand["cond_breadth"]
+                vr_ok = cand["cond_vol"]
+                r20_ok = cand["cond_ret"]
+                b_str = f"{b*100:.1f}%"
+                vr_str = f"{vr:.2f}"
+                r20_str = f"{r20*100:+.1f}%"
+
+                indicators_html = "&nbsp;·&nbsp;".join([
+                    radar_check(b_ok, "宽度", b_str),
+                    radar_check(vr_ok, "量比", vr_str),
+                    radar_check(r20_ok, "20日收益", r20_str),
+                ])
+
+                # 宽度改善
+                imp_str = f"{imp*100:+.1f} 百分点"
+                imp_color = "var(--accent-2)" if imp >= 0 else "var(--accent)"
+
+                # 尚缺
+                missing_str = "；".join(missing) if missing else "无"
+
+                html.append(f"""
+        <div style="padding:var(--u3) 0;border-bottom:1px dashed var(--rule);">
+          <div style="display:flex;align-items:baseline;gap:var(--u2);margin-bottom:var(--u);flex-wrap:wrap;">
+            <span style="font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--ink);letter-spacing:-0.01em;">{ind}</span>
+            {status_tag}
+          </div>
+          <div style="font-family:var(--font-mono);font-size:12px;color:var(--ink-2);line-height:1.8;margin-bottom:var(--u);">
+            {indicators_html}
+          </div>
+          <div style="font-size:12px;color:var(--ink-3);line-height:1.6;font-family:var(--font-body);">
+            弱势背景：过去 60 日有 <b>{n_low}</b> 日低于 35%&nbsp;·&nbsp;
+            近 5 日宽度：<b style="color:{imp_color};">{imp_str}</b>
+          </div>
+          <div style="font-size:12px;color:var(--ink-2);line-height:1.6;font-family:var(--font-body);margin-top:2px;">
+            尚缺：{missing_str}
+          </div>
+        </div>""")
+            html.append('    </div>')
+        html.append('  </section>')
 
     # ===== 3. 持仓监控 =====
     html.append('  <section class="section">')
@@ -1129,10 +1210,20 @@ def main():
     if signal_data_date != requested_date:
         print(f"  信号数据截至 {signal_data_date}（请求日期 {requested_date} 非交易日或数据落后）")
 
-    today_signals = get_today_signals(signal_data_date)
+    today_signals, all_signals, industry_daily = get_today_signals(signal_data_date)
+
+    # 信号雷达
+    radar_candidates = None
+    try:
+        radar_candidates = build_signal_radar(
+            industry_daily, all_signals, signal_data_date, max_items=5,
+        )
+    except Exception as e:
+        print(f"  ⚠ 信号雷达生成失败: {e}")
+
     monitoring = monitor_all_positions_v6(requested_date)
 
-    html = render_html(requested_date, signal_data_date, today_signals, monitoring)
+    html = render_html(requested_date, signal_data_date, today_signals, monitoring, radar_candidates)
     out_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
     out_path.write_text(html, encoding="utf-8")
     print(f"  ✓ {out_path}")

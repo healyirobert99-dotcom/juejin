@@ -1,0 +1,6 @@
+﻿trade_date,report_exists,report_size,report_mtime,is_blocked,n_signal_in_report,signal_data_date,total_history_signals,today_signals_recalc,signals_detail,data_validation_ok,errors,warnings,verdict,verdict_code
+2026-06-23,True,20695,2026-06-25 01:32:11,False,0,2026-06-23,289,0,[],True,,,✅ 正常运行，确实无正式信号,A
+2026-06-24,True,21496,2026-06-25 10:34:08,False,0,2026-06-24,289,0,[],True,,,✅ 正常运行，确实无正式信号,A
+2026-06-25,True,20996,2026-06-26 00:51:17,False,0,2026-06-25,289,0,[],True,,,✅ 正常运行，确实无正式信号,A
+2026-06-26,True,20936,2026-06-26 23:36:22,False,0,2026-06-26,289,0,[],True,,,✅ 正常运行，确实无正式信号,A
+2026-06-29,True,20936,2026-06-29 20:58:45,False,0,2026-06-29,289,0,[],True,,,✅ 正常运行，确实无正式信号,A

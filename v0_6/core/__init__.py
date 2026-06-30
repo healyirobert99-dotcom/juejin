@@ -23,6 +23,7 @@ from .live_trade_store import (
 )
 from .live_trade_monitor import evaluate_position, monitor_all_positions
 from .monitor_v6 import evaluate_position_v6, monitor_all_positions_v6
+from .signal_radar import build_signal_radar
 from .gold_signal_v6 import (
     PROGRESS_BUCKETS,
     SIGNAL_FACTORS,
@@ -35,6 +36,7 @@ from .gold_signal_v6 import (
 )
 
 __all__ = [
+    "build_signal_radar",
     "RULES",
     "load_rules",
     "load_raw_daily",

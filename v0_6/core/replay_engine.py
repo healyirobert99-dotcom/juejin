@@ -694,7 +694,7 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
             sd_date = get_signal_data_date(current_date)
             if sd_date:
                 # P0-1 修复：必须严格过滤到当前交易日，避免 T/T+1/T+2 重复下单
-                signals_today = get_today_signals(sd_date)
+                signals_today, _, _ = get_today_signals(sd_date)
                 if signals_today is not None and not signals_today.empty:
                     sd_dt = pd.to_datetime(sd_date)
                     cur_dt = pd.to_datetime(current_date)

@@ -114,14 +114,15 @@ def _make_mock_get(signal_dates: dict):
     """返回一个 mock get_today_signals，在给定日期（YYYY-MM-DD -> priority）返回金融行业信号"""
     def mock_get(signal_data_date, lookback_days=3):
         if signal_data_date in signal_dates:
-            return pd.DataFrame([{
+            df = pd.DataFrame([{
                 "signal_date": pd.Timestamp(signal_data_date),
                 "industry": "金融",
                 "priority": signal_dates[signal_data_date],
                 "breadth_at_signal": 0.45,
                 "vol_ratio_at_signal": 1.2,
             }])
-        return pd.DataFrame()
+            return df, df, pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     return mock_get
 
 
