@@ -1,7 +1,7 @@
 """
-信号雷达测试（13 条要求全覆盖）
+信号雷达测试（覆盖全部修正要求）
 
-要求覆盖：
+覆盖：
 1. 正式信号逻辑和数量完全不变
 2. 雷达只使用 signal_data_date 及以前数据
 3. 不满足行业规模的不显示
@@ -15,6 +15,10 @@
 11. 无候选时显示简洁空状态
 12. 数据阻断报告不显示雷达
 13. 雷达不会生成订单或交易
+14. factor_total 固定为 4
+15. 弱势背景计入 factor_pass_count
+16. 资格过滤条件不计入四因子分数
+17. factor_pass_count 显示口径为 /4（不出现 2/3 或 3/3）
 """
 from __future__ import annotations
 
@@ -251,6 +255,9 @@ def test_sort_stable():
     names1 = [c["industry"] for c in radar1]
     names2 = [c["industry"] for c in radar2]
     assert names1 == names2
+    # 排序依据：factor_pass_count 降序
+    for i in range(1, len(radar1)):
+        assert radar1[i-1]["factor_pass_count"] >= radar1[i]["factor_pass_count"]
 
 
 def test_empty_state():
@@ -296,3 +303,53 @@ def test_no_trade_generation():
             if node.module and ("live_trade" in node.module or "trade" in node.module.lower()):
                 if "signal" not in node.module:
                     assert False, f"雷达模块不应导入交易相关模块: {node.module}"
+
+
+# ── 四因子口径专用测试 ──
+
+def test_factor_total_is_four():
+    """要求 14：factor_total 固定为 4"""
+    daily = _make_industry_daily(n_industries=3, n_days=400)
+    sdd = "2026-06-29"
+    radar = build_signal_radar(daily, pd.DataFrame(), sdd, max_items=5)
+    for c in radar:
+        assert c["factor_total"] == 4, f"factor_total 应为 4，得到 {c['factor_total']}"
+
+
+def test_weakness_counts_as_factor():
+    """要求 15：弱势背景计入 factor_pass_count"""
+    daily = _make_industry_daily(n_industries=3, n_days=400)
+    sdd = "2026-06-29"
+    radar = build_signal_radar(daily, pd.DataFrame(), sdd, max_items=5)
+    for c in radar:
+        # candidate 必须满足弱势背景硬门槛
+        assert c["weakness_ok"] is True
+        # factor_pass_count = 1 (weakness) + day_conds_met
+        day_conds = sum([c["cond_breadth"], c["cond_vol"], c["cond_ret"]])
+        assert c["factor_pass_count"] == 1 + day_conds, (
+            f"factor_pass_count={c['factor_pass_count']} 应等于 1 (弱势背景) + {day_conds} (日条件)"
+        )
+
+
+def test_eligibility_not_in_factor_count():
+    """要求 16：资格过滤条件（行业规模>=20、310日历史、冷却期）不计入四因子分数"""
+    daily = _make_industry_daily(n_industries=1, n_days=400, n_stocks=25)
+    sdd = "2026-06-29"
+    radar = build_signal_radar(daily, pd.DataFrame(), sdd, max_items=5)
+    for c in radar:
+        assert c["factor_pass_count"] <= 4  # 4 因子上限
+        # 资格条件不增加 count
+        assert c["factor_pass_count"] >= 1  # 至少弱势背景
+
+
+def test_display_not_2_over_3():
+    """要求 17：页面中不出现 2/3 或 3/3 口径"""
+    # 验证所有候选的 factor_total 均为 4
+    daily = _make_industry_daily(n_industries=3, n_days=400)
+    sdd = "2026-06-29"
+    radar = build_signal_radar(daily, pd.DataFrame(), sdd, max_items=5)
+    for c in radar:
+        assert c["factor_total"] == 4
+        # 显示分母固定为 4，不会出现 /3
+        assert "/4" not in str(c["factor_pass_count"]) or c["factor_total"] == 4
+

@@ -3,9 +3,13 @@
 
 仅观察、不交易。
 
-观察正式策略 4 因子中当前已满足 2/3 条件的行业。
+展示正式策略 4 因子中当前已满足 3/4 条件的行业。
+因子1：弱势背景成立（硬资格门槛，候选行业默认满足）
+因子2：行业宽度 >= 35%
+因子3：平均量比 >= 1.0
+因子4：20日涨幅 > 0
 严格使用与正式策略相同的数据和行业指标。
-不与 signals / live_trades / ETF 等系统交互。
+不与交易系统交互。
 """
 from __future__ import annotations
 
@@ -37,7 +41,7 @@ def build_signal_radar(
     返回
     ----
     list[dict] :
-        每个元素含行业名称、触发进度、指标值、弱势背景、近5日宽度变化、尚缺条件。
+        每个元素含行业名称、四因子通过数/总数、指标值、弱势背景、尚缺条件。
         无候选时返回空列表。
     """
     if industry_daily.empty:
@@ -139,7 +143,10 @@ def build_signal_radar(
         if prev_breadth >= breadth_threshold:
             continue
 
-        # --- 当前三个触发条件 ---
+        # --- 四因子统计 ---
+        # 因子1：弱势背景成立（硬资格，候选行业默认满足）
+        weakness_ok = True
+        # 因子2-4：三个当日条件
         curr_breadth = g["breadth_ma20"].iloc[i]
         curr_vol_ratio = g["avg_vol_ratio"].iloc[i]
         curr_ret20 = g["avg_ret20"].iloc[i]
@@ -147,11 +154,14 @@ def build_signal_radar(
         cond_breadth = bool(curr_breadth >= breadth_threshold)
         cond_vol = bool(curr_vol_ratio >= vol_ratio_threshold)
         cond_ret = bool(curr_ret20 > 0)
-        conds_met = sum([cond_breadth, cond_vol, cond_ret])
+        day_conds_met = sum([cond_breadth, cond_vol, cond_ret])
 
-        # 必须满足至少 2 个
-        if conds_met < 2:
+        # 必须至少满足 2 个当日条件（弱势背景已是硬门槛，综合至少 3/4）
+        if day_conds_met < 2:
             continue
+
+        factor_pass_count = 1 + day_conds_met  # 因子1（弱势背景）+ 当日条件通过数
+        factor_total = 4
 
         # 排除已产生正式信号的行业
         if ind in today_formal_signals:
@@ -183,7 +193,9 @@ def build_signal_radar(
 
         candidates.append({
             "industry": ind,
-            "conditions_met": conds_met,
+            "factor_pass_count": factor_pass_count,
+            "factor_total": factor_total,
+            "weakness_ok": weakness_ok,
             "breadth": float(curr_breadth),
             "vol_ratio": float(curr_vol_ratio),
             "avg_ret20": float(curr_ret20),
@@ -196,12 +208,12 @@ def build_signal_radar(
         })
 
     # --- 排序 ---
-    # 1. 条件通过数量，降序
+    # 1. 四因子通过数量，降序
     # 2. 近 5 日宽度改善幅度，降序
     # 3. 当前宽度，降序
     # 4. 行业名称，升序（稳定性）
     candidates.sort(
-        key=lambda c: (-c["conditions_met"], -c["breadth_improvement_5d"], -c["breadth"], c["industry"])
+        key=lambda c: (-c["factor_pass_count"], -c["breadth_improvement_5d"], -c["breadth"], c["industry"])
     )
 
     # 截断到 max_items

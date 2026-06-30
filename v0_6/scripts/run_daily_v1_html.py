@@ -940,7 +940,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
         html.append('      <span class="sec-tag">仅供观察</span>')
         html.append('    </div>')
         html.append('    <p style="font-size:11px;color:var(--ink-3);font-style:italic;margin-bottom:var(--u3);font-family:var(--font-display);letter-spacing:0.05em;">')
-        html.append('      未达到正式四因子信号标准 · 当前至少满足 2/3 条件 · 不构成交易建议')
+        html.append('      四因子满足3项 · 尚未形成正式信号 · 不构成交易建议')
         html.append('    </p>')
 
         if not radar_candidates:
@@ -949,7 +949,8 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
             html.append('    <div style="display:flex;flex-direction:column;gap:var(--u3);">')
             for cand in radar_candidates:
                 ind = cand["industry"]
-                cm = cand["conditions_met"]
+                fpc = cand["factor_pass_count"]
+                ft = cand["factor_total"]
                 b = cand["breadth"]
                 vr = cand["vol_ratio"]
                 r20 = cand["avg_ret20"]
@@ -958,10 +959,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                 missing = cand["missing"]
 
                 # 状态标签
-                if cm == 3:
-                    status_tag = '<span style="font-family:var(--font-display);font-weight:700;font-size:10px;letter-spacing:0.1em;padding:2px 8px;border:1px solid var(--accent-2);color:var(--accent-2);">3/3 齐全</span>'
-                else:
-                    status_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:10px;letter-spacing:0.1em;padding:2px 8px;border:1px solid var(--warn);color:var(--warn);">{cm}/3 临界</span>'
+                status_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:10px;letter-spacing:0.1em;padding:2px 8px;border:1px solid var(--warn);color:var(--warn);">{fpc}/{ft} 观察</span>'
 
                 # 指标行
                 def radar_check(v: bool, label: str, val: str) -> str:
@@ -969,6 +967,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                     color = "var(--accent-2)" if v else "var(--ink-3)"
                     return f'<span style="font-size:12px;color:{color};white-space:nowrap;"><b>{mark}</b> {label}: {val}</span>'
 
+                weakness_ok = cand.get("weakness_ok", True)
                 b_ok = cand["cond_breadth"]
                 vr_ok = cand["cond_vol"]
                 r20_ok = cand["cond_ret"]
@@ -977,6 +976,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                 r20_str = f"{r20*100:+.1f}%"
 
                 indicators_html = "&nbsp;·&nbsp;".join([
+                    radar_check(weakness_ok, "弱势背景", f"{n_low}/60日"),
                     radar_check(b_ok, "宽度", b_str),
                     radar_check(vr_ok, "量比", vr_str),
                     radar_check(r20_ok, "20日收益", r20_str),
@@ -986,8 +986,13 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                 imp_str = f"{imp*100:+.1f} 百分点"
                 imp_color = "var(--accent-2)" if imp >= 0 else "var(--accent)"
 
-                # 尚缺
-                missing_str = "；".join(missing) if missing else "无"
+                # 距正式信号还差N项
+                missing_count = ft - fpc
+                if missing:
+                    missing_str = "；".join(missing)
+                    missing_display = f"距正式信号还差{missing_count}项：" + missing_str
+                else:
+                    missing_display = ""
 
                 html.append(f"""
         <div style="padding:var(--u3) 0;border-bottom:1px dashed var(--rule);">
@@ -1003,7 +1008,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
             近 5 日宽度：<b style="color:{imp_color};">{imp_str}</b>
           </div>
           <div style="font-size:12px;color:var(--ink-2);line-height:1.6;font-family:var(--font-body);margin-top:2px;">
-            尚缺：{missing_str}
+            {missing_display}
           </div>
         </div>""")
             html.append('    </div>')
