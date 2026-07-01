@@ -12,6 +12,7 @@ from .signal_b import (
 from .live_trade_store import (
     add_trade,
     calc_progress_for_etf,
+    calc_progress_for_industry,
     close_trade,
     close_trade_by_target,
     get_position_net,
@@ -54,6 +55,7 @@ __all__ = [
     "match_target",
     "load_sector_etf_map",
     "calc_progress_for_etf",
+    "calc_progress_for_industry",
     "evaluate_position",
     "monitor_all_positions",
     "evaluate_position_v6",

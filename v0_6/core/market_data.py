@@ -335,3 +335,26 @@ def load_sector_etf_rows() -> list[dict]:
                 "note": row[8].strip() if len(row) > 8 else "",
             })
     return rows
+
+
+# ── 3. 行业指数代码映射 ──
+
+def load_industry_index_map() -> dict[str, dict]:
+    """加载 industry_index_map.csv
+
+    Returns:
+        {sub_industry: {"first_level": ..., "index_code": ...}, ...}
+    """
+    path = DATA_DIR / "industry_index_map.csv"
+    result = {}
+    if not path.exists():
+        return result
+    with open(path, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            sub = row["sub_industry"].strip()
+            result[sub] = {
+                "first_level": row["first_level"].strip(),
+                "index_code": row["index_code"].strip(),
+            }
+    return result

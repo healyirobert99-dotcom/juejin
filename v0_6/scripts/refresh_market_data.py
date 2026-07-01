@@ -5,6 +5,7 @@
 - daily_hfq（从 JUEJIN_HFQ_SOURCE_DB 同步，或通过 Tushare daily API）
 - stock_daily_raw（未复权日线）
 - etf_daily（ETF 日线）
+- industry_index_daily（申万一级行业指数日线）
 - market_calendar（交易日历）
 
 用法：
@@ -14,6 +15,7 @@
     python refresh_market_data.py --no-hfq            # 跳过 daily_hfq
     python refresh_market_data.py --no-stock-raw      # 跳过 stock_daily_raw
     python refresh_market_data.py --no-etf            # 跳过 etf_daily
+    python refresh_market_data.py --no-industry-index # 跳过 industry_index_daily
 """
 from __future__ import annotations
 
@@ -28,6 +30,8 @@ sys.path.insert(0, str(V0_6_ROOT))
 
 import sqlite3
 
+import pandas as pd
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,6 +41,7 @@ from v0_6.core.market_data import (
     normalize_etf_ts_code,
     get_table_latest_date,
     load_sector_etf_rows,
+    load_industry_index_map,
 )
 
 TUSHARE_TOKEN = os.getenv("TUSHARE_TOKEN")
@@ -605,6 +610,91 @@ def refresh_etf_daily(pro, dry_run: bool = False) -> dict:
     return result
 
 
+# ── 5B. 行业指数日线 ──
+
+def refresh_industry_index_daily(pro=None, dry_run: bool = False) -> dict:
+    """增量更新 industry_index_daily（申万一级行业指数日线）
+
+    用于无 ETF 匹配时按行业指数计算进度桶。
+    从 industry_index_map.csv 读取指数代码列表，通过 akshare 的 index_hist_sw 拉取。
+    pro 参数保留仅为接口兼容，实际用 akshare。
+    """
+    result = {"table": "industry_index_daily", "rows_added": 0, "ok": True, "error": None}
+
+    import akshare as ak
+
+    index_map = load_industry_index_map()
+    # 去掉 .SI 后缀
+    index_codes = sorted({v["index_code"].replace(".SI", "") for v in index_map.values() if v["index_code"]})
+    if not index_codes:
+        result["ok"] = False
+        result["error"] = "industry_index_map.csv 无有效指数代码"
+        return result
+
+    if dry_run:
+        result["rows_added"] = -1
+        result["index_count"] = len(index_codes)
+        return result
+
+    dst = sqlite3.connect(str(STOCK_DATA_DB))
+    _ensure_table(dst, """
+        CREATE TABLE IF NOT EXISTS industry_index_daily (
+            ts_code TEXT NOT NULL, trade_date TEXT NOT NULL,
+            close REAL, pct_chg REAL,
+            PRIMARY KEY (ts_code, trade_date)
+        )
+    """)
+    dst.execute("CREATE INDEX IF NOT EXISTS idx_idx_daily_code ON industry_index_daily(ts_code)")
+    dst.commit()
+
+    total_added = 0
+    for idx_code in index_codes:
+        try:
+            df = ak.index_hist_sw(symbol=idx_code, period="day")
+        except Exception as e:
+            result.setdefault("warnings", []).append(f"{idx_code}: {e}")
+            continue
+        if df is None or df.empty:
+            result.setdefault("warnings", []).append(f"{idx_code}: 无数据")
+            continue
+
+        # 已有的日期
+        existing = set()
+        for (td,) in dst.execute(
+            "SELECT trade_date FROM industry_index_daily WHERE ts_code = ?", (idx_code,)
+        ).fetchall():
+            existing.add(td)
+
+        rows_to_insert = []
+        for _, row in df.iterrows():
+            td = str(row["日期"]).replace("-", "")
+            if td in existing:
+                continue
+            close_val = float(row["收盘"]) if pd.notna(row["收盘"]) else None
+            # 计算涨跌幅（前后日比较）
+            pct = None
+            if rows_to_insert and rows_to_insert[-1][2] is not None and close_val is not None:
+                pct = (close_val - rows_to_insert[-1][2]) / rows_to_insert[-1][2]
+            rows_to_insert.append((idx_code, td, close_val, pct))
+
+        if rows_to_insert:
+            # 补充第一条的涨跌幅没法算，设为0
+            if rows_to_insert[0][3] is None:
+                rows_to_insert[0] = (rows_to_insert[0][0], rows_to_insert[0][1], rows_to_insert[0][2], 0.0)
+            dst.executemany(
+                "INSERT OR IGNORE INTO industry_index_daily (ts_code, trade_date, close, pct_chg) VALUES (?, ?, ?, ?)",
+                rows_to_insert,
+            )
+            dst.commit()
+            total_added += len(rows_to_insert)
+
+    dst.close()
+    result["rows_added"] = total_added
+    if result.get("warnings"):
+        result["ok"] = False
+    return result
+
+
 # ── 5. 程序化刷新入口（不解析 sys.argv）──
 
 def refresh_all(dry_run: bool = False) -> dict:
@@ -631,6 +721,8 @@ def refresh_all(dry_run: bool = False) -> dict:
     results["stock_raw"] = r
     r = refresh_etf_daily(pro, dry_run=dry_run)
     results["etf"] = r
+    r = refresh_industry_index_daily(pro, dry_run=dry_run)
+    results["industry_index"] = r
 
     ok = all(rr.get("ok", False) for rr in results.values())
     merged = {"ok": ok, "results": results}
@@ -649,6 +741,7 @@ def main():
     parser.add_argument("--no-hfq", action="store_true", help="跳过 daily_hfq")
     parser.add_argument("--no-stock-raw", action="store_true", help="跳过 stock_daily_raw")
     parser.add_argument("--no-etf", action="store_true", help="跳过 etf_daily")
+    parser.add_argument("--no-industry-index", action="store_true", help="跳过 industry_index_daily")
     args = parser.parse_args()
 
     if not STOCK_DATA_DB.exists():
@@ -695,6 +788,12 @@ def main():
         print("\n--- etf_daily ---")
         r = refresh_etf_daily(pro, dry_run=args.dry_run)
         results["etf"] = r
+        print(f"  {'✓' if r['ok'] else '✗'} {r['rows_added']} 行" + (f" | {r.get('error', '')}" if not r['ok'] else ""))
+
+    if not args.no_industry_index:
+        print("\n--- industry_index_daily ---")
+        r = refresh_industry_index_daily(pro, dry_run=args.dry_run)
+        results["industry_index"] = r
         print(f"  {'✓' if r['ok'] else '✗'} {r['rows_added']} 行" + (f" | {r.get('error', '')}" if not r['ok'] else ""))
 
     print(f"\n{'='*60}")

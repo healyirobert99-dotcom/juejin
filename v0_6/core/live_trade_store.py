@@ -323,6 +323,50 @@ def calc_progress_for_etf(etf_code: str, end_date: str, lookback: int = 60) -> O
     }
 
 
+def calc_progress_for_industry(industry_name: str, end_date: str, lookback: int = 60) -> Optional[dict]:
+    """按行业指数日线计算进度桶
+
+    通过 industry_index_map.csv 将细分行业名映射到申万一级行业指数代码，
+    从 industry_index_daily 表取 close 计算进度。
+
+    Returns:
+        {"current": 0.85, "low_60d": 0.80, "progress": 0.0625, "as_of": "20260701", "index_code": "801150.SI"}
+        或 None（无映射/数据不足）
+    """
+    if not STOCK_DATA_DB.exists():
+        return None
+
+    from v0_6.core.market_data import load_industry_index_map
+    index_map = load_industry_index_map()
+    entry = index_map.get(industry_name)
+    if not entry:
+        return None
+
+    idx_code = entry["index_code"].replace(".SI", "")
+    con = sqlite3.connect(str(STOCK_DATA_DB))
+    rows = con.execute(
+        "SELECT trade_date, close FROM industry_index_daily "
+        "WHERE ts_code = ? AND trade_date <= ? ORDER BY trade_date DESC LIMIT ?",
+        (idx_code, end_date.replace("-", ""), lookback + 1),
+    ).fetchall()
+    con.close()
+
+    if not rows or len(rows) < 5:
+        return None
+
+    closes = [r[1] for r in rows]
+    current = closes[0]
+    low_60d = min(closes)
+    progress = (current - low_60d) / low_60d if low_60d and low_60d > 0 else 0
+    return {
+        "current": current,
+        "low_60d": low_60d,
+        "progress": progress,
+        "as_of": rows[0][0],
+        "index_code": idx_code,
+    }
+
+
 # ============== CRUD ==============
 
 def add_trade(

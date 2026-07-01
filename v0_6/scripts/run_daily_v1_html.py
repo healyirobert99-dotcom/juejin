@@ -26,12 +26,16 @@ sys.path.insert(0, str(V0_6_ROOT))
 
 from v0_6.core import (
     build_signal_radar,
+    calc_progress_for_etf,
+    calc_progress_for_industry,
     compute_industry_daily_metrics,
     compute_per_stock_indicators,
     detect_stabilizing_b,
+    get_bucket,
     load_raw_daily,
     mark_repeat_priority,
     monitor_all_positions_v6,
+    PROGRESS_BUCKETS,
     RULES,
 )
 from v0_6.core.config import DAILY_DIR
@@ -914,6 +918,28 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
             <span class="etf-tag light">⚠ 无 ETF</span>
             <span class="etf-name">{etf_r['note']}</span>
           </div>"""
+            # 进度桶计算
+            bucket_html = ""
+            if etf_r.get("best") and etf_r["best"].get("code"):
+                # 有 ETF → 用 ETF 价格精确计算进度
+                progress_info = calc_progress_for_etf(etf_r["best"]["code"], signal_data_date)
+                if progress_info:
+                    bucket_info = get_bucket(progress_info["progress"])
+                    bucket_html = f"""<br>
+          进度 <b>{bucket_info['name']}</b> · 止损 <b>{bucket_info['stop']*100:.0f}%</b> · 止盈 <b>{bucket_info['take_profit']*100:.0f}%</b>"""
+            else:
+                # 无 ETF → 先用行业指数日线精确计算，再 fallback 到 avg_ret20 估算
+                progress_info = calc_progress_for_industry(sig["industry"], signal_data_date)
+                if progress_info:
+                    bucket_info = get_bucket(progress_info["progress"])
+                    bucket_html = f"""<br>
+          进度 <b>{bucket_info['name']}</b> · 止损 <b>{bucket_info['stop']*100:.0f}%</b> · 止盈 <b>{bucket_info['take_profit']*100:.0f}%</b>"""
+                else:
+                    est_progress = sig.get("avg_ret20_at_signal", 0)
+                    if est_progress is not None and est_progress > 0:
+                        bucket_info = get_bucket(est_progress)
+                        bucket_html = f"""<br>
+          <span style="opacity:0.7;">进度参考</span> <b>{bucket_info['name']}</b> · 止损 <b>{bucket_info['stop']*100:.0f}%</b> · 止盈 <b>{bucket_info['take_profit']*100:.0f}%</b>"""
             html.append(f"""
       <article class="dispatch-item {tag}">
         <div>
@@ -925,7 +951,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
         </div>
         <div class="dispatch-meta">
           建仓 <b>{pos_pct*100:.0f}%</b><br>
-          宽度 <b>{sig["breadth_at_signal"]*100:.0f}%</b> · 量比 <b>{sig["vol_ratio_at_signal"]:.2f}</b>
+          宽度 <b>{sig["breadth_at_signal"]*100:.0f}%</b> · 量比 <b>{sig["vol_ratio_at_signal"]:.2f}</b>{bucket_html}
         </div>
       </article>""")
         html.append('    </div>')
@@ -995,7 +1021,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                     missing_display = ""
 
                 html.append(f"""
-        <div style="padding:var(--u3) 0;border-bottom:1px dashed var(--rule);">
+        <div style="padding:var(--u3) 0 var(--u3) var(--u3);border-bottom:1px dashed var(--rule);border-left:2px solid var(--rule-2);">
           <div style="display:flex;align-items:baseline;gap:var(--u2);margin-bottom:var(--u);flex-wrap:wrap;">
             <span style="font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--ink);letter-spacing:-0.01em;">{ind}</span>
             {status_tag}
