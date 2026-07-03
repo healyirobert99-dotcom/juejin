@@ -644,6 +644,24 @@ body {
   margin-top: 4px;
   letter-spacing: 0.02em;
 }
+/* 折叠分析 */
+.analysis-detail { margin-top: 4px; border-top: 1px solid var(--rule); padding-top: 4px; }
+.analysis-detail summary { cursor: pointer; font-size: 10px; color: var(--ink-3); font-family: var(--font-ui); user-select: none; }
+.analysis-detail summary::-webkit-details-marker { display: none; }
+.analysis-detail summary::before { content: '▸ '; }
+.analysis-detail[open] summary::before { content: '▾ '; }
+.analysis-body { font-size: 10px; line-height: 1.5; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }
+.analysis-body p { margin: 2px 0; }
+.analysis-body ul { margin: 2px 0; padding-left: 16px; }
+.analysis-body li { margin: 1px 0; }
+.mini-metrics { width: 100%; border-collapse: collapse; font-size: 10px; }
+.mini-metrics td { padding: 1px 4px; border-bottom: 1px solid #eee; }
+.mini-metrics td:first-child { color: var(--ink-3); width: 40%; }
+@media print {
+  .analysis-detail { border: none; }
+  .analysis-detail summary { display: none !important; }
+  .analysis-body { display: block !important; border-left: none; }
+}
 </style>
 """
 
@@ -783,10 +801,10 @@ def render_position_card(r: dict) -> str:
     if source_ind:
         if retreat_action == "NORMAL":
             ind_status = "正常"
-        elif retreat_action == "WARNING":
-            ind_status = "退潮预警"
-        else:
+        elif retreat_action == "CONFIRMED_RETREAT":
             ind_status = "确认退潮"
+        else:
+            ind_status = "退潮预警"
         triggers = []
         if retreat_score > 60:
             triggers.append(f"评分 {retreat_score:.0f}")
@@ -796,6 +814,11 @@ def render_position_card(r: dict) -> str:
         ind_status_html = f"""
     <div class="led-stops" style="font-size:10px;color:var(--ink-3);margin-top:2px;">
       来源 <b>{source_ind}</b> · 行业 <b>{ind_status}</b>{' · '+trig_str if trig_str else ''}
+    </div>"""
+    else:
+        ind_status_html = """
+    <div class="led-stops" style="font-size:10px;color:var(--accent);margin-top:2px;">
+      来源行业：待补录
     </div>"""
 
     return f"""
@@ -813,8 +836,120 @@ def render_position_card(r: dict) -> str:
     <div class="led-stops">止损 <b>{fmt_price(stop_price)}</b> · 止盈 <b>{fmt_price(tp_price)}</b></div>{ind_status_html}
   </div>
   <div class="led-advice {action}">{advice}</div>
+{_render_analysis_details(r, source_ind)}
 </article>
 """
+
+
+def _render_analysis_details(r: dict, source_ind: str | None) -> str:
+    """生成四个折叠分析入口（主线结构、相对强度、退潮、价格风控）"""
+    parts = []
+
+    # 主线结构
+    ms = r.get("mainline_structure") or {}
+    if source_ind and ms:
+        auto = " open" if ms.get("structure") in ("INTERNAL_WEAKENING", "UNCLEAR") else ""
+        parts.append(f"""  <details class="analysis-detail"{auto}>
+    <summary>查看主线结构依据</summary>
+    <div class="analysis-body">
+      <p><b>{ms.get('structure_label', '?')}</b> — {ms.get('summary', '—')}</p>
+      <p>持仓建议：{ms.get('holding_guidance', '—')}</p>
+      {_metrics_html(ms.get('key_metrics', {}))}
+      {_evidence_html("支持依据", ms.get('supporting_evidence', []))}
+      {_evidence_html("风险", ms.get('risk_evidence', []))}
+    </div>
+  </details>""")
+    elif source_ind:
+        parts.append("""  <details class="analysis-detail">
+    <summary>查看主线结构依据</summary>
+    <div class="analysis-body"><p>暂不可判断（待补录来源行业）</p></div>
+  </details>""")
+
+    # 相对强度
+    rs = r.get("relative_strength") or {}
+    if source_ind and rs:
+        parts.append(f"""  <details class="analysis-detail">
+    <summary>查看相对强度依据</summary>
+    <div class="analysis-body">
+      <p><b>{rs.get('strength_label', '?')}</b> — 20日排名前 {rs.get('pct_20d', '?')}%</p>
+      {_metrics_html({k: v for k, v in rs.items() if k in ('ret20_rank', 'ret60_rank', 'rank_change_10d', 'pct_60d', 'n_industries') and v is not None})}
+      <p style="font-size:10px;color:var(--ink-3);">仅用于辅助持有，不产生交易动作。</p>
+    </div>
+  </details>""")
+
+    # 退潮
+    ret_score = r.get("retreat_score", 0)
+    ret_stage = r.get("retreat_stage")
+    ret_action = r.get("retreat_action", "NORMAL")
+    if source_ind:
+        auto_retreat = " open" if ret_action in ("CONFIRMED_RETREAT",) else ""
+        components = r.get("retreat_components", {}) or {}
+        penalties = r.get("retreat_penalties", {}) or {}
+        triggers = []
+        if float(components.get("ret5", 0)) < -0.08: triggers.append("5日急跌")
+        if float(components.get("drawdown20", 0)) < -0.10: triggers.append("回撤过大")
+        if float(components.get("above20", 0)) < 0.40: triggers.append("宽度不足")
+        trig_str = "、".join(triggers) if triggers else "无"
+        offset_items = _build_evidence(
+            _e(float(components.get("ret5", 0)) > 0, "5日收益转正"),
+            _e(float(components.get("above20", 0)) >= 0.35, "宽度回升至 35% 以上"),
+        )
+
+        action_text = {
+            "NORMAL": "当前未达到退潮预警条件。",
+            "CONFIRMED_RETREAT": "退潮条件达到确认标准，建议下一交易日减仓 1/3。",
+        }.get(ret_action, "行业内部出现转弱迹象，暂不减仓，继续观察。")
+
+        parts.append(f"""  <details class="analysis-detail"{auto_retreat}>
+    <summary>查看退潮判断依据</summary>
+    <div class="analysis-body">
+      <p>评分 <b>{ret_score:.1f}</b> · 阶段 <b>{ret_stage or '无'}</b> · {ret_action}</p>
+      <p>{action_text}</p>
+      <p style="font-size:10px;">触发: {trig_str} · 抵消: {'、'.join(offset_items) if offset_items else '无'}</p>
+      {_metrics_html(components)}
+      {_metrics_html({k: v for k, v in penalties.items()}, prefix="惩罚: ")}
+    </div>
+  </details>""")
+
+    # 价格风控
+    price_auto = " open" if r.get("action") in ("CLEAR", "REDUCE_1_3", "RETREAT_REDUCE_1_3") else ""
+    stop = r.get("stop_price", 0)
+    tp = r.get("take_profit_price", 0)
+    entry = r.get("entry_price", 0)
+    current = r.get("current_price", 0)
+    dist_stop = r.get("distance_to_stop", 0) * 100
+    dist_tp = r.get("distance_to_tp", 0) * 100
+    parts.append(f"""  <details class="analysis-detail"{price_auto}>
+    <summary>查看价格风控明细</summary>
+    <div class="analysis-body">
+      {_metrics_html({
+          "买入价": f"{entry:.4f}" if entry else "—",
+          "当前价": f"{current:.4f}" if current else "—",
+          "收益": f"{r.get('return_pct', 0)*100:.1f}%",
+          "入场桶": r.get("progress_bucket_at_entry", "—"),
+          "当前桶": r.get("current_bucket", "—"),
+          "止损价": f"{stop:.4f}" if stop else "—",
+          "止盈价": f"{tp:.4f}" if tp else "—",
+          "距止损": f"{dist_stop:.0f}%" if dist_stop else "—",
+          "距止盈": f"{dist_tp:.0f}%" if dist_tp else "—",
+      })}
+      <p style="font-size:10px;color:var(--ink-3);">价格风控是最终硬防线，与行业退潮并行。</p>
+    </div>
+  </details>""")
+
+    return "\n".join(parts)
+
+
+def _metrics_html(d: dict, prefix: str = "") -> str:
+    if not d: return ""
+    rows = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in list(d.items())[:7])
+    return f"<table class='mini-metrics'>{prefix}{rows}</table>"
+
+
+def _evidence_html(title: str, items: list[str]) -> str:
+    if not items: return ""
+    lis = "".join(f"<li>{i}</li>" for i in items[:4])
+    return f"<p><b>{title}</b></p><ul>{lis}</ul>"
 
 
 # ============== 主渲染 ==============
@@ -1301,6 +1436,23 @@ def main():
         signal_data_date=signal_data_date,
         industry_daily=industry_daily,
     )
+
+    # 主线结构 + 相对强度 增强
+    try:
+        from v0_6.core.mainline_monitor import (
+            classify_mainline_structure, compute_relative_strength, compute_trend_continuation,
+        )
+        for m in monitoring:
+            si = m.get("source_industry")
+            if si and not industry_daily.empty:
+                m["mainline_structure"] = classify_mainline_structure(industry_daily, si, signal_data_date)
+                m["relative_strength"] = compute_relative_strength(industry_daily, si, signal_data_date)
+                m["trend_continuation"] = compute_trend_continuation(
+                    industry_daily, si, signal_data_date,
+                    signal_date=m.get("source_signal_date"),
+                )
+    except Exception as e:
+        print(f"  ⚠ 主线结构分析失败: {e}")
 
     html = render_html(requested_date, signal_data_date, today_signals, monitoring, radar_candidates)
     out_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
