@@ -25,3 +25,6 @@ nul
 # 操作系统
 Thumbs.db
 .DS_Store
+
+# 大文件（超GitHub限制100MB）
+artifacts/replay/
