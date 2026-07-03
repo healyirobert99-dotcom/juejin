@@ -1404,14 +1404,19 @@ def main():
         for pe in validation.get("position_errors", []):
             print(f"  ❌ {pe.get('target','?')} ({pe.get('target_type','?')}): {pe.get('error','')}")
 
-        # 阻断报告：不调用正常的 render_html/monitor_all_positions_v6
+        # 阻断报告：同时生成 HTML 和 Markdown
         y, m, d = requested_date.split("-")
+        from v0_6.scripts.render_markdown_report import render_blocked_report_md
         blocked_html = render_blocked_report(requested_date, signal_data_date, validation,
                                               pd.DataFrame(), [])
-        out_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
-        out_path.write_text(blocked_html, encoding="utf-8")
-        print(f"  ⚠ 阻断报告已生成（不含可执行买卖建议）: {out_path}")
-        print(f"\n⚠️ 数据未就绪，请先完成行情数据更新。")
+        blocked_md = render_blocked_report_md(requested_date, signal_data_date, validation)
+
+        html_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
+        md_path = DAILY_DIR / f"daily_v1_{requested_date}.md"
+        html_path.write_text(blocked_html, encoding="utf-8")
+        md_path.write_text(blocked_md, encoding="utf-8")
+        print(f"  ⚠ 阻断报告: {html_path}")
+        print(f"  ⚠ 阻断报告: {md_path}")
         return 2
 
     date_note = f" (数据截至 {signal_data_date})" if signal_data_date != requested_date else ""
@@ -1455,9 +1460,23 @@ def main():
         print(f"  ⚠ 主线结构分析失败: {e}")
 
     html = render_html(requested_date, signal_data_date, today_signals, monitoring, radar_candidates)
-    out_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
-    out_path.write_text(html, encoding="utf-8")
-    print(f"  ✓ {out_path}")
+    html_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
+    html_path.write_text(html, encoding="utf-8")
+
+    # Markdown 研究版
+    from v0_6.scripts.render_markdown_report import render_markdown_report
+    md = render_markdown_report(
+        requested_date=requested_date,
+        signal_data_date=signal_data_date,
+        today_signals=today_signals,
+        monitoring=monitoring,
+        radar_candidates=radar_candidates,
+    )
+    md_path = DAILY_DIR / f"daily_v1_{requested_date}.md"
+    md_path.write_text(md, encoding="utf-8")
+
+    print(f"  ✓ HTML 快速版: {html_path}")
+    print(f"  ✓ Markdown 研究版: {md_path}")
 
     # 同时重建档案索引
     try:
@@ -1466,7 +1485,9 @@ def main():
     except Exception as e:
         print(f"  ⚠️ 档案索引更新失败: {e}")
 
-    print(f"\n🎉 完成！浏览器打开：file:///{out_path.as_posix()}")
+    print(f"\n🎉 完成！")
+    print(f"  HTML 快速版：file:///{html_path.as_posix()}")
+    print(f"  Markdown 研究版：{md_path}")
     return 0
 
 
