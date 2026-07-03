@@ -18,6 +18,8 @@ def render_markdown_report(
     radar_candidates: list = None,
     validation: dict = None,
     open_positions: list = None,
+    group_linkage: list = None,
+    recent_cases = None,
 ) -> str:
     """生成 Markdown 研究版日报"""
 
@@ -39,7 +41,7 @@ def render_markdown_report(
     lines.append(f"- 报告日期：{requested_date}")
     lines.append(f"- 行情数据截至：{signal_data_date}")
     lines.append(f"- 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    lines.append(f"- 系统版本：v0.6")
+    lines.append(f"- 系统版本：掘金信号 v1.1")
     if validation:
         lines.append(f"- 数据状态：{'正常' if validation.get('ok') else '异常'}")
     lines.append("")
@@ -106,6 +108,44 @@ def render_markdown_report(
             _append_radar_detail(lines, cand, i)
     else:
         lines.append("今日无 3/4 观察行业。")
+        lines.append("")
+
+    # ── v1.1: 行业大类联动 ──
+    if group_linkage:
+        lines.append("## 三½、行业大类联动")
+        lines.append("")
+        for gl in group_linkage:
+            lines.append(f"### {gl['group']}｜{gl['count']} 个细分行业同步进入雷达")
+            lines.append("")
+            lines.append("| 细分行业 | 状态 | 连续天数 | 缺失条件 |")
+            lines.append("|---|---:|---|")
+            for cand in (radar_candidates or []):
+                if cand["industry"] in gl["members"]:
+                    wl = cand.get("watch_level", "WATCH")
+                    wl_label = "强观察" if wl == "STRONG_WATCH" else "普通观察"
+                    streak = cand.get("consecutive_radar_days", 1)
+                    missing = cand.get("missing_text", "")
+                    lines.append(f"| {cand['industry']} | {wl_label} | {streak} | {missing} |")
+            lines.append("")
+            lines.append("当前属于同一大类多个细分行业同步改善，但正式信号仍按各细分行业独立判断。")
+            lines.append("")
+
+    # ── v1.1: 近期案例跟踪 ──
+    if recent_cases is not None and not recent_cases.empty:
+        lines.append("## 三、近期信号案例跟踪")
+        lines.append("")
+        lines.append("| 行业 | 首次雷达 | 正式触发 | 5日 | 10日 | 20日 | 最大涨幅 | 最大回撤 |")
+        lines.append("|---|---:|---:|---:|---:|---:|")
+        for _, case in recent_cases.iterrows():
+            ind = case.get("industry", "?")
+            frd = case.get("first_radar_date", "")
+            fts = "是" if case.get("formal_triggered") == "1" else "—"
+            f5 = f"{float(case.get('forward_ret_5d','') or 0)*100:+.1f}%" if case.get("forward_ret_5d") not in ("", None) else "待更新"
+            f10 = f"{float(case.get('forward_ret_10d','') or 0)*100:+.1f}%" if case.get("forward_ret_10d") not in ("", None) else "待更新"
+            f20 = f"{float(case.get('forward_ret_20d','') or 0)*100:+.1f}%" if case.get("forward_ret_20d") not in ("", None) else "待更新"
+            mr = f"{float(case.get('max_return_20d','') or 0)*100:+.1f}%" if case.get("max_return_20d") not in ("", None) else "待更新"
+            dd = f"{float(case.get('max_drawdown_20d','') or 0)*100:+.1f}%" if case.get("max_drawdown_20d") not in ("", None) else "待更新"
+            lines.append(f"| {ind} | {frd} | {fts} | {f5} | {f10} | {f20} | {mr} | {dd} |")
         lines.append("")
 
     # ═══════ 四、持仓总览 ═══════
@@ -193,12 +233,40 @@ def render_markdown_report(
 
 
 def _append_radar_detail(lines: list, cand: dict, idx: int):
-    """追加一个雷达候选详情"""
-    lines.append(f"### {idx}. {cand['industry']} | 3/4 观察")
+    """追加一个雷达候选详情（v1.1 含连续跟踪）"""
+    ind = cand['industry']
+    wl = cand.get("watch_level", "WATCH")
+    wl_label = "强观察" if wl == "STRONG_WATCH" else "普通观察"
+    streak = cand.get("consecutive_radar_days", 1)
+    first_date = cand.get("first_radar_date", "")
+
+    title = f"### {idx}. {ind} | {wl_label}"
+    if streak >= 2:
+        title += f" | 连续 {streak} 个交易日"
+    lines.append(title)
     lines.append("")
+
+    if first_date:
+        lines.append(f"- 首次进入雷达：{first_date}")
+
     missing = cand.get("missing", [])
     missing_text = "；".join(missing) if missing else "无"
-    lines.append(f"**尚缺条件：{missing_text}**")
+    lines.append(f"- 当前缺失条件：{missing_text}")
+
+    # 距离阈值
+    dist_val = cand.get("distance_to_threshold")
+    dist_unit = cand.get("distance_unit", "")
+    if dist_val is not None and dist_val > 0:
+        lines.append(f"- 当前 {cand.get('missing_key', '?')}：距阈值 {dist_val}{dist_unit}")
+
+    dist_change = cand.get("distance_change")
+    is_improving = cand.get("is_improving", False)
+    if dist_change is not None:
+        change_dir = "改善" if is_improving else "扩大"
+        lines.append(f"- 较上一交易日：{change_dir} {abs(dist_change)}{dist_unit}")
+
+    imp_str = f"{cand['breadth_improvement_5d']*100:+.1f} 个百分点"
+    lines.append(f"- 近 5 日行业宽度变化：{imp_str}")
     lines.append("")
     lines.append("| 因子 | 当前值 | 阈值 | 状态 |")
     lines.append("|---|---:|---:|---|")

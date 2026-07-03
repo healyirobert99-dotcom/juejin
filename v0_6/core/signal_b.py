@@ -57,7 +57,7 @@ def compute_per_stock_indicators(sd: pd.DataFrame) -> pd.DataFrame:
     sd["vol_ratio_5_60"] = sd["vol_ma5"] / sd["vol_ma60"]
 
     # N 日收益率（用于退潮和主线分析）
-    for nd in [5, 10, 20, 60]:
+    for nd in [1, 5, 10, 20, 60]:
         sd[f"ret_{nd}d"] = g["close"].transform(lambda x: x.pct_change(nd))
 
     return sd
@@ -70,6 +70,7 @@ def compute_industry_daily_metrics(sd: pd.DataFrame) -> pd.DataFrame:
         breadth_ma20=("above_ma20", "mean"),
         breadth_ma60=("above_ma60", "mean"),
         avg_vol_ratio=("vol_ratio_5_60", "mean"),
+        avg_ret1=("ret_1d", "mean"),
         avg_ret5=("ret_5d", "mean"),
         avg_ret10=("ret_10d", "mean"),
         avg_ret20=("ret_20d", "mean"),

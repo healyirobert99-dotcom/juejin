@@ -1,5 +1,5 @@
 """
-v0.6 日报 V1.0 HTML 渲染器（最终版）
+v0.6 日报 V1.1 HTML 渲染器
 
 设计原则：
 - 5 秒看完：4 张摘要卡
@@ -955,7 +955,8 @@ def _evidence_html(title: str, items: list[str]) -> str:
 # ============== 主渲染 ==============
 
 def render_html(requested_date: str, signal_data_date: str, today_signals: pd.DataFrame,
-                monitoring: list, radar_candidates: list | None = None) -> str:
+                monitoring: list, radar_candidates: list | None = None,
+                group_linkage: list | None = None, recent_cases: pd.DataFrame | None = None) -> str:
     sd_dt = pd.to_datetime(signal_data_date)
     today_only = today_signals[today_signals["signal_date"] == sd_dt]
     n_today = len(today_only)
@@ -984,7 +985,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>掘金日报 · {requested_date}{empty_mark} | Zhuxian Catch v0.6</title>
+<title>掘金日报 · {requested_date}{empty_mark} | Zhuxian Catch v1.1</title>
 {HTML_STYLE}
 </head>
 <body>
@@ -1164,6 +1165,23 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                 imp = cand["breadth_improvement_5d"]
                 missing = cand["missing"]
 
+                # ── v1.1 雷达连续跟踪 ──
+                watch_level = cand.get("watch_level", "WATCH")
+                streak = cand.get("consecutive_radar_days", 1)
+                dist_val = cand.get("distance_to_threshold")
+                dist_unit = cand.get("distance_unit", "")
+                dist_change = cand.get("distance_change")
+                is_improving = cand.get("is_improving", False)
+
+                if watch_level == "STRONG_WATCH":
+                    wl_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:10px;letter-spacing:0.1em;padding:2px 8px;background:var(--warn);color:var(--bg);">强观察</span>'
+                else:
+                    wl_tag = ""
+
+                streak_info = f"连续 {streak} 日" if streak >= 2 else ""
+                if streak_info and wl_tag:
+                    streak_info = f" · {streak_info}"
+
                 # 状态标签
                 status_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:10px;letter-spacing:0.1em;padding:2px 8px;border:1px solid var(--warn);color:var(--warn);">{fpc}/{ft} 观察</span>'
 
@@ -1200,23 +1218,82 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                 else:
                     missing_display = ""
 
+                # ── v1.1 距离阈值信息 ──
+                dist_html = ""
+                if dist_val is not None and dist_val > 0:
+                    change_symbol = "↓改善" if is_improving else ("↑恶化" if dist_change is not None and dist_change < 0 else "")
+                    dist_html = f' · 距阈值 <b>{dist_val}{dist_unit}</b> {change_symbol}'
+
                 html.append(f"""
         <div style="padding:var(--u3) 0 var(--u3) var(--u3);border-bottom:1px dashed var(--rule);border-left:2px solid var(--rule-2);">
           <div style="display:flex;align-items:baseline;gap:var(--u2);margin-bottom:var(--u);flex-wrap:wrap;">
             <span style="font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--ink);letter-spacing:-0.01em;">{ind}</span>
             {status_tag}
+            {wl_tag}
           </div>
           <div style="font-family:var(--font-mono);font-size:12px;color:var(--ink-2);line-height:1.8;margin-bottom:var(--u);">
             {indicators_html}
           </div>
           <div style="font-size:12px;color:var(--ink-3);line-height:1.6;font-family:var(--font-body);">
-            近 5 日宽度：<b style="color:{imp_color};">{imp_str}</b>
+            近 5 日宽度：<b style="color:{imp_color};">{imp_str}</b>{dist_html}
           </div>
           <div style="font-size:12px;color:var(--ink-2);line-height:1.6;font-family:var(--font-body);margin-top:2px;">
-            {missing_display}
+            {missing_display}{streak_info}
           </div>
         </div>""")
             html.append('    </div>')
+        html.append('  </section>')
+
+    # ── v1.1 行业大类联动 ──
+    if group_linkage:
+        html.append('  <section class="section">')
+        html.append('    <div class="sec-head">')
+        html.append('      <span class="sec-num">§ I¾</span>')
+        html.append('      <span class="sec-title" style="font-size:20px;">大类联动</span>')
+        html.append('      <span class="sec-tag">仅供观察</span>')
+        html.append('    </div>')
+        for gl in group_linkage:
+            grp_name = gl["group"]
+            count = gl["count"]
+            members = gl["members"]
+            members_str = " · ".join(members)
+            html.append(f"""
+        <div style="padding:var(--u2) var(--u3);margin-bottom:var(--u2);border-left:2px solid var(--warn);background:var(--bg-2);">
+          <div style="font-family:var(--font-display);font-weight:700;font-size:15px;color:var(--ink);margin-bottom:var(--u);">
+            {grp_name}
+            <span style="font-weight:400;font-size:12px;color:var(--ink-3);"> · {count} 个细分行业进入雷达</span>
+          </div>
+          <div style="font-size:12px;color:var(--ink-2);">{members_str}</div>
+          <div style="font-size:11px;color:var(--ink-3);margin-top:var(--u);font-style:italic;">
+            同大类多细分同步改善 · 正式信号仍按单行业独立判断
+          </div>
+        </div>""")
+        html.append('  </section>')
+
+    # ── v1.1 近期案例跟踪 ──
+    if recent_cases is not None and not recent_cases.empty:
+        html.append('  <section class="section">')
+        html.append('    <div class="sec-head">')
+        html.append('      <span class="sec-num">§ I+</span>')
+        html.append('      <span class="sec-title" style="font-size:20px;">近期案例</span>')
+        html.append('    </div>')
+        for _, case in recent_cases.iterrows():
+            ind = case.get("industry", "?")
+            fwd5 = case.get("forward_ret_5d", "")
+            fwd10 = case.get("forward_ret_10d", "")
+            status = case.get("current_status", "")
+            trigger = case.get("formal_triggered", "")
+
+            ret5_str = f"雷达后 5 日 {float(fwd5)*100:+.1f}%" if fwd5 not in ("", None) else "等待 5 日结果"
+            ret10_str = f"10 日 {float(fwd10)*100:+.1f}%" if fwd10 not in ("", None) else ""
+            triggered = "已触发" if trigger == "1" else ""
+
+            html.append(f"""
+        <div style="padding:var(--u2) var(--u3);margin-bottom:var(--u2);border-left:2px solid var(--accent-2);">
+          <span style="font-family:var(--font-display);font-weight:700;font-size:14px;">{ind}</span>
+          <span style="font-size:12px;color:var(--ink-2);margin-left:var(--u2);">{ret5_str}{f' · {ret10_str}' if ret10_str else ''}</span>
+          {f'<span style="font-size:10px;color:var(--accent-2);margin-left:var(--u);">{triggered}</span>' if triggered else ''}
+        </div>""")
         html.append('  </section>')
 
     # ===== 3. 持仓监控 =====
@@ -1273,7 +1350,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
 
     # ===== Footer（编辑风收尾） =====
     html.append('  <footer class="colophon">')
-    html.append('    <span>掘金信号 · 4 因子 + 4 进度桶 + 仓位 8%/12%</span>')
+    html.append('    <span>掘金信号 v1.1 · 4 因子 + 4 进度桶 + 仓位 8%/12%</span>')
     html.append(f'    <span class="stamp">SET IN FRAUNCES &amp; NOTO SERIF</span>')
     html.append(f'    <span>生成于 {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</span>')
     html.append('  </footer>')
@@ -1419,20 +1496,28 @@ def main():
         print(f"  ⚠ 阻断报告: {md_path}")
         return 2
 
+    from v0_6.core.version import VERSION, VERSION_LABEL
     date_note = f" (数据截至 {signal_data_date})" if signal_data_date != requested_date else ""
-    print(f"\n=== 掘金日报 V1.0 HTML | {requested_date}{date_note} ===\n")
+    print(f"\n=== {VERSION_LABEL} | {requested_date}{date_note} ===\n")
 
     if signal_data_date != requested_date:
         print(f"  信号数据截至 {signal_data_date}（请求日期 {requested_date} 非交易日或数据落后）")
 
     today_signals, all_signals, industry_daily = get_today_signals(signal_data_date)
 
-    # 信号雷达
+    # ── v1.1: 信号雷达 + 连续跟踪 + 强观察 ──
     radar_candidates = None
     try:
         radar_candidates = build_signal_radar(
             industry_daily, all_signals, signal_data_date, max_items=5,
         )
+        if radar_candidates:
+            from v0_6.core.observation_tracker import compute_radar_streak, reset_radar_for_triggered
+            radar_candidates = compute_radar_streak(radar_candidates, signal_data_date)
+            # 正式信号触发后清除雷达跟踪
+            if not today_signals.empty:
+                for _, sig in today_signals.iterrows():
+                    reset_radar_for_triggered(sig.get("industry", ""))
     except Exception as e:
         print(f"  ⚠ 信号雷达生成失败: {e}")
 
@@ -1459,7 +1544,30 @@ def main():
     except Exception as e:
         print(f"  ⚠ 主线结构分析失败: {e}")
 
-    html = render_html(requested_date, signal_data_date, today_signals, monitoring, radar_candidates)
+    # ── v1.1: 行业大类联动 ──
+    group_linkage = []
+    try:
+        from v0_6.core.industry_groups import check_group_linkage
+        radar_industries = [c["industry"] for c in (radar_candidates or [])]
+        signal_industries = today_signals["industry"].tolist() if not today_signals.empty else []
+        group_linkage = check_group_linkage(radar_industries + signal_industries)
+    except Exception as e:
+        print(f"  ⚠ 大类联动检测失败: {e}")
+
+    # ── v1.1: 案例账本更新 ──
+    signal_cases = None
+    try:
+        from v0_6.core.observation_tracker import update_signal_cases, get_recent_cases
+        signal_cases = update_signal_cases(
+            radar_candidates or [], today_signals, industry_daily, signal_data_date,
+        )
+        recent_cases = get_recent_cases(3)
+    except Exception as e:
+        print(f"  ⚠ 案例账本更新失败: {e}")
+        recent_cases = None
+
+    html = render_html(requested_date, signal_data_date, today_signals, monitoring,
+                       radar_candidates, group_linkage=group_linkage, recent_cases=recent_cases)
     html_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
     html_path.write_text(html, encoding="utf-8")
 
@@ -1471,6 +1579,8 @@ def main():
         today_signals=today_signals,
         monitoring=monitoring,
         radar_candidates=radar_candidates,
+        group_linkage=group_linkage,
+        recent_cases=recent_cases,
     )
     md_path = DAILY_DIR / f"daily_v1_{requested_date}.md"
     md_path.write_text(md, encoding="utf-8")
@@ -1485,7 +1595,8 @@ def main():
     except Exception as e:
         print(f"  ⚠️ 档案索引更新失败: {e}")
 
-    print(f"\n🎉 完成！")
+    from v0_6.core.version import VERSION_LABEL as _VL
+    print(f"\n🎉 {_VL} 日报完成！")
     print(f"  HTML 快速版：file:///{html_path.as_posix()}")
     print(f"  Markdown 研究版：{md_path}")
     return 0

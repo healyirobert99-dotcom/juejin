@@ -920,6 +920,23 @@ class TradeFormHandler(BaseHTTPRequestHandler):
             init_schema()
 
             if action in ("BUY", "ADD"):
+                # ── v1.1: 来源行业（仅 BUY 需要，ADD 自动继承） ──
+                source_industry = data.get("source_industry", "").strip() or None
+                source_signal_date = data.get("source_signal_date", "").strip() or None
+                source_signal_priority = data.get("source_signal_priority", "").strip() or None
+                source_signal_type = data.get("source_signal_type", "").strip() or None
+
+                # ADD 时自动继承当前持仓的来源行业
+                if action == "ADD" and not source_industry:
+                    con_chk = sqlite3.connect(str(DB_PATH))
+                    si_row = con_chk.execute(
+                        "SELECT source_industry FROM live_trades WHERE target=? AND action='BUY' AND closed=0 ORDER BY trade_id ASC LIMIT 1",
+                        (target,),
+                    ).fetchone()
+                    con_chk.close()
+                    if si_row and si_row[0]:
+                        source_industry = si_row[0]
+
                 # 1) 拉取进度/桶（基于现价，仅作参考）
                 rules = auto_calc_rules(target, target_type, date) if target_type != "INDUSTRY" else {}
                 progress = rules.get("progress")
@@ -958,7 +975,15 @@ class TradeFormHandler(BaseHTTPRequestHandler):
                     stop_price=stop_price,
                     take_profit_price=tp_price,
                     notes=notes,
+                    source_industry=source_industry,
+                    source_signal_date=source_signal_date,
+                    source_signal_priority=source_signal_priority,
+                    source_signal_type=source_signal_type,
                 )
+                # ── v1.1 警告 ──
+                warn = ""
+                if action == "BUY" and not source_industry:
+                    warn = "未填写来源行业。持仓可以保存，但主线结构、相对强度和退潮监控将不可用。建议通过人工补录工具稍后填写。"
             elif action == "REDUCE":
                 if not parent_trade_id:
                     raise ValueError("REDUCE 必须提供 parent_trade_id")
@@ -1048,10 +1073,13 @@ class TradeFormHandler(BaseHTTPRequestHandler):
             else:
                 raise ValueError(f"未知 action: {action}")
 
+            resp = {"ok": True, "trade_id": trade_id, "target_name": target_name}
+            if action in ("BUY",) and 'warn' in dir() and warn:
+                resp["warning"] = warn
             self._send(
                 200,
                 "application/json",
-                json.dumps({"ok": True, "trade_id": trade_id, "target_name": target_name}, ensure_ascii=False).encode("utf-8"),
+                json.dumps(resp, ensure_ascii=False).encode("utf-8"),
             )
         except Exception as e:
             self._send(400, "application/json", json.dumps({"ok": False, "error": str(e)}).encode("utf-8"))
