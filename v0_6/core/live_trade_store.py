@@ -618,28 +618,48 @@ def get_position_summary_all() -> List[dict]:
             "progress_at_entry": prog,
         })
 
-        # 附带 source_industry（从首笔 BUY 中读取）
+        # 附带 source_industry（从首笔 BUY 中读取）+ 一致性检查
         con3 = sqlite3.connect(str(DB_PATH))
         si = con3.execute(
-            "SELECT source_industry, source_signal_date, source_signal_priority, source_signal_ret20, "
+            "SELECT source_industry, source_signal_date, source_signal_priority, "
+            "source_signal_type, source_signal_ret20, "
             "take_profit_reduced_1_3, retreat_reduced_1_3 "
             "FROM live_trades WHERE target=? AND action IN ('BUY','ADD') AND closed=0 "
             "ORDER BY trade_id ASC LIMIT 1",
             (r["target"],),
         ).fetchone()
+
+        # 一致性检查：同一周期内所有 BUY 的 source_industry 是否一致
+        all_si = con3.execute(
+            "SELECT DISTINCT source_industry, source_signal_type "
+            "FROM live_trades WHERE target=? AND action IN ('BUY','ADD') AND closed=0",
+            (r["target"],),
+        ).fetchall()
         con3.close()
+
+        source_industries = {row[0] for row in all_si if row[0]}
+        source_types = {row[1] for row in all_si if row[1]}
+
         if si:
             results[-1]["source_industry"] = si[0]
             results[-1]["source_signal_date"] = si[1]
             results[-1]["source_signal_priority"] = si[2]
-            results[-1]["source_signal_ret20"] = si[3]
-            results[-1]["take_profit_reduced"] = bool(si[4])
-            results[-1]["retreat_reduced"] = bool(si[5])
+            results[-1]["source_signal_type"] = si[3]
+            results[-1]["source_signal_ret20"] = si[4]
+            results[-1]["take_profit_reduced"] = bool(si[5])
+            results[-1]["retreat_reduced"] = bool(si[6])
+            results[-1]["source_industry_status"] = (
+                "OK" if len(source_industries) == 1
+                else "CONFLICT" if len(source_industries) > 1
+                else "MISSING"
+            )
         else:
             results[-1]["source_industry"] = None
             results[-1]["source_signal_date"] = None
+            results[-1]["source_signal_type"] = None
             results[-1]["take_profit_reduced"] = False
             results[-1]["retreat_reduced"] = False
+            results[-1]["source_industry_status"] = "MISSING"
     return results
 
 
