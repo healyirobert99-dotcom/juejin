@@ -585,6 +585,11 @@ def refresh_etf_daily(pro, dry_run: bool = False) -> dict:
                 + f"（含 {len(open_in_failed)} 个开放持仓 ETF），该日未提交"
             )
             return result
+        if day_failed:
+            result["failed"] = day_failed
+            result.setdefault("warnings", []).append(
+                f"日期 {td_str}: {len(day_failed)}/{len(normalized)} 个非持仓 ETF 更新失败（已容忍）"
+            )
 
         # 3) 原子写入
         try:
@@ -605,7 +610,10 @@ def refresh_etf_daily(pro, dry_run: bool = False) -> dict:
 
     dst.close()
     result["rows_added"] = total_added
-    if result.get("failed"):
+    if result.get("failed") and not result.get("error"):
+        # 非持仓 ETF 失败：warnings 已记录，不降级 ok
+        pass
+    elif result.get("failed"):
         result["ok"] = False
     return result
 

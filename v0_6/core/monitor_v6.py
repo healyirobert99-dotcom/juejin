@@ -330,10 +330,15 @@ def evaluate_position_v6(
     }
 
 
-def monitor_all_positions_v6(today: str = None) -> List[dict]:
+def monitor_all_positions_v6(
+    today: str = None,
+    signal_data_date: str = None,
+    industry_daily: pd.DataFrame = None,
+) -> List[dict]:
     """监控所有未平仓持仓（v6 规则）
 
     按 target 聚合净持仓后逐标监控。
+    可选接收 industry_daily 用于计算行业退潮信号。
     """
     from .live_trade_store import get_position_summary_all
 
@@ -341,6 +346,19 @@ def monitor_all_positions_v6(today: str = None) -> List[dict]:
         today = datetime.now().strftime("%Y-%m-%d")
 
     summaries = get_position_summary_all()
+
+    # — 退潮横截面：先一次性为所有行业计算，再按持仓提取（避免单行 rank=1 失真） —
+    retreat_section = None
+    if industry_daily is not None and not industry_daily.empty:
+        try:
+            from .retreat_signal import build_retreat_cross_section
+            retreat_section = build_retreat_cross_section(
+                industry_daily,
+                as_of_date=signal_data_date or today,
+            )
+        except Exception:
+            retreat_section = None
+
     results = []
     for s in summaries:
         result = evaluate_position_v6(
@@ -355,5 +373,51 @@ def monitor_all_positions_v6(today: str = None) -> List[dict]:
             progress_bucket=s.get("progress_bucket"),
             reduced_1_3=s["has_reduced"],
         )
+
+        # — 退潮信号叠加（从全量横截面中提取） —
+        source_industry = s.get("source_industry")
+        if source_industry and retreat_section is not None and not retreat_section.empty:
+            from .retreat_signal import compute_retreat_for_industry
+            retreat = compute_retreat_for_industry(retreat_section, source_industry)
+            result["retreat_score"] = retreat["retreat_score"]
+            result["retreat_stage"] = retreat["retreat_stage"]
+            result["retreat_action"] = retreat["retreat_action"]
+            result["source_industry"] = source_industry
+            result["retreat_components"] = retreat.get("retreat_components", {})
+            result["retreat_penalties"] = retreat.get("retreat_penalties", {})
+
+            base_action = result["action"]
+            tp_reduced = s.get("take_profit_reduced", False)
+            retreat_reduced = s.get("retreat_reduced", False)
+
+            if base_action == "CLEAR":
+                result["action_reason"] = "STOP_LOSS"
+            elif retreat["retreat_action"] == "CONFIRMED_RETREAT" and not retreat_reduced:
+                if base_action == "REDUCE_1_3" and not tp_reduced:
+                    result["action"] = "REDUCE_1_3"
+                    result["priority"] = "RED"
+                    result["action_reason"] = "TAKE_PROFIT_AND_RETREAT"
+                else:
+                    result["action"] = "RETREAT_REDUCE_1_3"
+                    result["priority"] = "RED"
+                    result["action_reason"] = "RETREAT"
+            elif retreat["retreat_action"] == "CONFIRMED_RETREAT" and retreat_reduced:
+                result["action_reason"] = "RETREAT_ALREADY_REDUCED"
+                if base_action in ("HOLD", "WATCH", "ADJUST"):
+                    result["action"] = "RETREAT_WATCH"
+                    result["priority"] = "YELLOW"
+            elif retreat["retreat_action"] == "WARNING":
+                if base_action in ("HOLD", "ADJUST"):
+                    result["action"] = "RETREAT_WATCH"
+                    result["priority"] = "YELLOW"
+                    result["action_reason"] = "RETREAT_WARNING"
+            else:
+                result["action_reason"] = "NORMAL"
+        else:
+            result["source_industry"] = source_industry
+            result["retreat_score"] = 0
+            result["retreat_stage"] = None
+            result["retreat_action"] = "NORMAL"
+
         results.append(result)
     return results

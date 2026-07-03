@@ -744,14 +744,29 @@ def render_position_card(r: dict) -> str:
     current_price = r.get("current_price", 0)
     price_date = r.get("today", "")
 
-    # 操作建议文案
+    # 操作建议文案（含退潮）
+    retreat_stage = r.get("retreat_stage")
+    retreat_score = r.get("retreat_score", 0)
+    source_ind = r.get("source_industry")
+    retreat_action = r.get("retreat_action", "NORMAL")
+    action_reason = r.get("action_reason", "")
+
     if action == "CLEAR":
         advice = f"触发 {stop_pct:.0f}% 止损线 — 立即清仓离场"
+    elif action == "RETREAT_REDUCE_1_3":
+        advice = "行业确认退潮 — 建议下一交易日减仓 1/3"
+        if action_reason == "TAKE_PROFIT_AND_RETREAT":
+            advice = "触发止盈 + 行业确认退潮 — 减仓 1/3（一次性）"
     elif action == "REDUCE_1_3":
-        advice = f"触发 {tp_pct:.0f}% 止盈线 — 减仓 1/3 锁定利润"
+        if action_reason == "TAKE_PROFIT_AND_RETREAT":
+            advice = "触发止盈 + 行业确认退潮 — 减仓 1/3（一次性）"
+        else:
+            advice = f"触发 {tp_pct:.0f}% 止盈线 — 减仓 1/3 锁定利润"
+    elif action == "RETREAT_WATCH":
+        advice = "行业出现退潮预警 — 暂不减仓，继续观察"
     elif action == "WATCH":
         if distance_to_stop < 5 and distance_to_stop > 0:
-            advice = f"距止损线仅 {distance_to_stop:.0f}% — 保持密切关注"
+            advice = f"距止损线仅 {distance_to_stop:.0f}% — 密切关注"
         elif distance_to_tp < 5 and distance_to_tp > 0:
             advice = f"距止盈线仅 {distance_to_tp:.0f}% — 准备兑现"
         else:
@@ -763,10 +778,30 @@ def render_position_card(r: dict) -> str:
 
     bucket_indicator = f" → {current_bucket}" if bucket != current_bucket else ""
 
+    # 行业状态区（紧凑）
+    ind_status_html = ""
+    if source_ind:
+        if retreat_action == "NORMAL":
+            ind_status = "正常"
+        elif retreat_action == "WARNING":
+            ind_status = "退潮预警"
+        else:
+            ind_status = "确认退潮"
+        triggers = []
+        if retreat_score > 60:
+            triggers.append(f"评分 {retreat_score:.0f}")
+        if retreat_stage:
+            triggers.append(retreat_stage[:5])
+        trig_str = " · ".join(triggers[:2]) if triggers else ""
+        ind_status_html = f"""
+    <div class="led-stops" style="font-size:10px;color:var(--ink-3);margin-top:2px;">
+      来源 <b>{source_ind}</b> · 行业 <b>{ind_status}</b>{' · '+trig_str if trig_str else ''}
+    </div>"""
+
     return f"""
 <article class="ledger {action}">
   <div class="led-left">
-    <div class="led-name">{r.get('name') or r.get('target_name') or r.get('target', '?')}</div>
+    <div class="led-name">{source_ind + ' · ' if source_ind else ''}{r.get('name') or r.get('target_name') or r.get('target', '?')}</div>
     <span class="led-action-tag {action}">{action}</span>
     <div class="led-bucket"><b>{bucket}</b>{bucket_indicator}</div>
   </div>
@@ -775,7 +810,7 @@ def render_position_card(r: dict) -> str:
     <div class="led-stops">入场 {r['entry_date']}</div>
     <div class="led-stops">现价 {fmt_price(current_price)}</div>
     <div class="led-stops" style="font-size:10px;color:var(--ink-3);">价格截至 {price_date}</div>
-    <div class="led-stops">止损 <b>{fmt_price(stop_price)}</b> · 止盈 <b>{fmt_price(tp_price)}</b></div>
+    <div class="led-stops">止损 <b>{fmt_price(stop_price)}</b> · 止盈 <b>{fmt_price(tp_price)}</b></div>{ind_status_html}
   </div>
   <div class="led-advice {action}">{advice}</div>
 </article>
@@ -792,6 +827,9 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
     n_repeat = len(today_only[today_only["priority"] == "REPEAT"])
     n_alerts = sum(1 for r in monitoring if r.get("priority") in ("RED", "YELLOW"))
     n_red = sum(1 for r in monitoring if r.get("priority") == "RED")
+    n_red_clear = sum(1 for r in monitoring if r.get("action") == "CLEAR")
+    n_red_retreat = sum(1 for r in monitoring if r.get("action") == "RETREAT_REDUCE_1_3")
+    n_red_tp = sum(1 for r in monitoring if r.get("action") == "REDUCE_1_3" and r.get("action_reason") != "TAKE_PROFIT_AND_RETREAT")
     n_positions = len(monitoring)
 
     # 解析日期为刊头需要的形式
@@ -843,8 +881,8 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
   <div class="alert-banner">
     <div class="alert-icon">!</div>
     <div class="alert-text">
-      <b>紧急离场信号</b>
-      {n_red} 个持仓已突破止损线，请在今日收盘前完成清仓操作
+      <b>需立即操作</b>
+      止损清仓 <b>{n_red_clear}</b> · 退潮减仓 <b>{n_red_retreat}</b> · 止盈减仓 <b>{n_red_tp}</b>
     </div>
   </div>
 """)
@@ -852,8 +890,15 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
     # ===== 1. 摘要数字墙 =====
     html.append('  <div class="metrics">')
     html.append(f'    <div class="metric"><div class="metric-num">{n_today}</div><div class="metric-key">今日信号</div><div class="metric-note">首次建仓机会</div></div>')
-    html.append(f'    <div class="metric alert"><div class="metric-num">{n_red}</div><div class="metric-key">需立即操作</div><div class="metric-note">已破止损</div></div>')
-    html.append(f'    <div class="metric"><div class="metric-num">{n_positions}</div><div class="metric-key">当前持仓</div><div class="metric-note">4 桶规则监控中</div></div>')
+    if n_red > 0:
+        alerts_text = []
+        if n_red_clear > 0: alerts_text.append(f'清除 {n_red_clear}')
+        if n_red_retreat > 0: alerts_text.append(f'退潮 {n_red_retreat}')
+        if n_red_tp > 0: alerts_text.append(f'止盈 {n_red_tp}')
+        html.append(f'    <div class="metric alert"><div class="metric-num">{n_red}</div><div class="metric-key">需立即操作</div><div class="metric-note">{" ".join(alerts_text) or "已破止损"}</div></div>')
+        html.append(f'    <div class="metric"><div class="metric-num">{n_positions}</div><div class="metric-key">当前持仓</div><div class="metric-note">4 桶规则监控中</div></div>')
+    else:
+        html.append(f'    <div class="metric"><div class="metric-num">{n_positions}</div><div class="metric-key">当前持仓</div><div class="metric-note">4 桶规则监控中</div></div>')
     html.append(f'    <div class="metric up"><div class="metric-num">{n_repeat}</div><div class="metric-key">重复触发</div><div class="metric-note">优先建仓</div></div>')
     html.append('  </div>')
 
@@ -1251,7 +1296,11 @@ def main():
     except Exception as e:
         print(f"  ⚠ 信号雷达生成失败: {e}")
 
-    monitoring = monitor_all_positions_v6(requested_date)
+    monitoring = monitor_all_positions_v6(
+        today=requested_date,
+        signal_data_date=signal_data_date,
+        industry_daily=industry_daily,
+    )
 
     html = render_html(requested_date, signal_data_date, today_signals, monitoring, radar_candidates)
     out_path = DAILY_DIR / f"daily_v1_{requested_date}.html"

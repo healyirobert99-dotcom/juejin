@@ -356,12 +356,15 @@ def test_etf_partial_failure_rollback(monkeypatch, tmp_path):
     monkeypatch.setattr(cfg, "DATA_DIR", orig_data_dir)
     monkeypatch.setattr(md, "DATA_DIR", orig_data_dir)
 
-    assert not result["ok"], "ETF 部分失败时应返回 ok=False"
+    # 新行为：非持仓 ETF 失败不再阻断当日（ok=True），但 failed 列表仍记录
+    assert result["ok"], "非持仓 ETF 失败应容忍，返回 ok=True"
     assert result.get("failed") is not None, "应包含 failed 列表"
     failed_codes = [f[0] for f in result["failed"]]
     assert "159995.SZ" in failed_codes, f"失败列表应含 159995.SZ，实 {failed_codes}"
 
     con2 = sqlite3.connect(str(db))
     max_date = con2.execute("SELECT MAX(trade_date) FROM etf_daily").fetchone()[0]
+    count = con2.execute("SELECT COUNT(*) FROM etf_daily WHERE trade_date='20260625'").fetchone()[0]
     con2.close()
-    assert max_date is None, f"MAX(trade_date) 应仍为 None，实 {max_date}"
+    assert max_date == "20260625", f"应有数据写入，实 max={max_date}"
+    assert count == 2, f"应成功写入 2 行（1 只 ETF 失败容忍），实 {count} 行"
