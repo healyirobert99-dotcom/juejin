@@ -394,9 +394,10 @@ def _append_position_detail(lines: list, r: dict, idx: int):
     # 最终判断
     lines.append("#### 8. 最终判断")
     lines.append("")
+    status_text = {"NORMAL": "正常", "CONFIRMED_RETREAT": "确认退潮"}
     ms_type = (r.get("mainline_structure") or {}).get("structure_label", "—")
     rs_type = (r.get("relative_strength") or {}).get("strength_label", "—")
-    lines.append(f"- 行业趋势：{'仍在' if ms.get('structure') != 'INTERNAL_WEAKENING' else '内部转弱'}")
+    lines.append(f"- 行业趋势：{'仍在' if (r.get('mainline_structure') or {}).get('structure') != 'INTERNAL_WEAKENING' else '内部转弱'}")
     lines.append(f"- 主线结构：{ms_type}")
     lines.append(f"- 相对强度：{rs_type}")
     lines.append(f"- 退潮状态：{status_text.get(r.get('retreat_action', 'NORMAL'), '正常')}")
