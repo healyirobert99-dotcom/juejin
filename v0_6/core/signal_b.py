@@ -46,7 +46,7 @@ def load_raw_daily(start: str = "2010-01-01", end: str = "2026-06-30") -> pd.Dat
 
 
 def compute_per_stock_indicators(sd: pd.DataFrame) -> pd.DataFrame:
-    """计算每只个股的 6 个核心指标"""
+    """计算每只个股的核心指标"""
     g = sd.groupby("ts_code", sort=False)
     sd["ma20"] = g["close"].transform(lambda x: x.rolling(20, min_periods=10).mean())
     sd["ma60"] = g["close"].transform(lambda x: x.rolling(60, min_periods=30).mean())
@@ -55,7 +55,11 @@ def compute_per_stock_indicators(sd: pd.DataFrame) -> pd.DataFrame:
     sd["vol_ma5"] = g["vol"].transform(lambda x: x.rolling(5, min_periods=3).mean())
     sd["vol_ma60"] = g["vol"].transform(lambda x: x.rolling(60, min_periods=30).mean())
     sd["vol_ratio_5_60"] = sd["vol_ma5"] / sd["vol_ma60"]
-    sd["ret_20d"] = g["close"].transform(lambda x: x.pct_change(20))
+
+    # N 日收益率（用于退潮和主线分析）
+    for nd in [5, 10, 20, 60]:
+        sd[f"ret_{nd}d"] = g["close"].transform(lambda x: x.pct_change(nd))
+
     return sd
 
 
@@ -66,8 +70,14 @@ def compute_industry_daily_metrics(sd: pd.DataFrame) -> pd.DataFrame:
         breadth_ma20=("above_ma20", "mean"),
         breadth_ma60=("above_ma60", "mean"),
         avg_vol_ratio=("vol_ratio_5_60", "mean"),
+        avg_ret5=("ret_5d", "mean"),
+        avg_ret10=("ret_10d", "mean"),
         avg_ret20=("ret_20d", "mean"),
+        avg_ret60=("ret_60d", "mean"),
+        median_ret5=("ret_5d", "median"),
+        median_ret10=("ret_10d", "median"),
         median_ret20=("ret_20d", "median"),
+        median_ret60=("ret_60d", "median"),
     ).reset_index()
     daily = daily[daily["n"] >= _rules()["signal"]["min_stocks_per_industry"]].copy()
     return daily

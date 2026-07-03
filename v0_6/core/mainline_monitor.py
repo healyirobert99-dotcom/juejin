@@ -48,36 +48,36 @@ def classify_mainline_structure(
     if n_stocks < 20:
         return _unclear(f"行业股票数不足（{n_stocks} < 20）")
 
-    # 关键指标
-    ret20_mean = float(today.get("ret20", 0))
-    ret20_median = float(today.get("ret20_median", ret20_mean))  # 兼容无中位数
-    above20 = float(today.get("above20", 0))
+    # 关键指标（使用真实字段名）
+    required = ["avg_ret20", "median_ret20", "breadth_ma20", "n"]
+    missing = [c for c in required if c not in today.index]
+    if missing:
+        return _unclear(f"缺少必要字段: {', '.join(missing)}")
 
-    # 宽度变化
+    ret20_mean = float(today.get("avg_ret20", 0))
+    ret20_median = float(today.get("median_ret20", 0))
+    above20 = float(today.get("breadth_ma20", 0))
+    if "breadth_ma60" in today.index:
+        above60 = float(today["breadth_ma60"])
+
+    # 宽度变化：从历史 breadth_ma20 计算
     if len(ind_rec) >= 5:
-        above20_5d_ago = float(ind_rec.iloc[-5].get("above20", above20))
+        above20_5d_ago = float(ind_rec.iloc[-5].get("breadth_ma20", above20))
     else:
         above20_5d_ago = above20
     breadth_change_5d = above20 - above20_5d_ago
 
-    # 中位数收益变化
-    if len(ind_rec) >= 10:
-        ret20_median_10d_ago = float(ind_rec.iloc[-10].get("ret20_median", ret20_median))
-    else:
-        ret20_median_10d_ago = ret20_median
+    # 上涨股票比例估算（用 breadth_ma20 近似）
+    up_ratio = above20
 
-    # 上涨股票比例
-    up_ratio = float(today.get("up_ratio", above20))  # 兼容
-
-    # 强股与中位数差距（用历史窗口平均值估算）
+    # 强股与中位数差距
     mean_median_gap = abs(ret20_mean - ret20_median) if ret20_mean and ret20_median else 0
 
     metrics = {
         "ret20_mean": round(ret20_mean, 4),
         "ret20_median": round(ret20_median, 4),
-        "above20": round(above20, 3),
+        "breadth_ma20": round(above20, 3),
         "breadth_change_5d": round(breadth_change_5d, 3),
-        "up_ratio": round(up_ratio, 3),
         "mean_median_gap": round(mean_median_gap, 4),
         "n_stocks": n_stocks,
     }
@@ -182,29 +182,37 @@ def compute_relative_strength(
            rank_change_10d, pct_20d, pct_60d, explanation}
     """
     day = industry_daily[industry_daily["trade_date"] == as_of_date]
-    if day.empty or "ret20" not in day.columns:
+    if day.empty or "avg_ret20" not in day.columns:
         return _rs_insufficient("当日截面数据不足")
 
     # 在全行业截面中排名
-    if "ret20" in day.columns:
-        day = day.copy()
-        day["ret20_rank"] = day["ret20"].rank(pct=True)
-        day["ret60_rank"] = day["ret60"].rank(pct=True) if "ret60" in day.columns else np.nan
+    day = day.copy()
+    day["ret20_rank"] = day["avg_ret20"].rank(pct=True)
+
+    # 60 日排名：如果有 avg_ret60 就计算，否则标记为暂无
+    has_ret60 = "avg_ret60" in day.columns and day["avg_ret60"].notna().sum() > 3
+    if has_ret60:
+        day["ret60_rank"] = day["avg_ret60"].rank(pct=True)
 
     target = day[day["industry"] == industry]
     if target.empty:
         return _rs_insufficient("该行业不在当日截面中")
 
     ret20_rank = float(target["ret20_rank"].iloc[0])
-    ret60_rank = float(target["ret60_rank"].iloc[0]) if "ret60_rank" in target.columns else np.nan
+    ret60_rank = float(target["ret60_rank"].iloc[0]) if has_ret60 else None
     n_industries = len(day)
 
-    # 10 日前排名
+    # 10 日前排名变化
     prev_date_row = _find_prev_date(industry_daily, as_of_date, 10)
     rank_change = None
     if prev_date_row is not None:
-        prev_ret20_rank = float(prev_date_row.get("ret20_rank", ret20_rank))
-        rank_change = round(ret20_rank - prev_ret20_rank, 3)
+        prev = prev_date_row.copy()
+        if "avg_ret20" in prev.columns:
+            prev["prev_rank"] = prev["avg_ret20"].rank(pct=True)
+            prev_target = prev[prev["industry"] == industry]
+            if not prev_target.empty:
+                prev_ret20_rank = float(prev_target["prev_rank"].iloc[0])
+                rank_change = round(ret20_rank - prev_ret20_rank, 3)
 
     # 判断强度状态
     is_strong = ret20_rank > 0.50  # 处于行业前 50%
@@ -231,10 +239,10 @@ def compute_relative_strength(
         "strength": strength,
         "strength_label": label,
         "ret20_rank": round(ret20_rank, 3),
-        "ret60_rank": round(ret60_rank, 3) if not np.isnan(ret60_rank) else None,
+        "ret60_rank": round(ret60_rank, 3) if ret60_rank is not None else None,
         "rank_change_10d": rank_change,
         "pct_20d": int((1 - ret20_rank) * 100),
-        "pct_60d": int((1 - ret60_rank) * 100) if not np.isnan(ret60_rank) else None,
+        "pct_60d": int((1 - ret60_rank) * 100) if ret60_rank is not None else None,
         "n_industries": n_industries,
         "explanation": explanation,
     }
@@ -290,8 +298,8 @@ def compute_trend_continuation(
     sig_row = post.iloc[0] if not post.empty else ind.iloc[-1]
     now_row = post.iloc[-1]
 
-    breadth_change = float(now_row.get("above20", 0)) - float(sig_row.get("above20", 0))
-    ret_change = float(now_row.get("ret20_median", 0)) - float(sig_row.get("ret20_median", 0))
+    breadth_change = float(now_row.get("breadth_ma20", 0)) - float(sig_row.get("breadth_ma20", 0))
+    ret_change = float(now_row.get("median_ret20", 0)) - float(sig_row.get("median_ret20", 0))
 
     # 判断
     if breadth_change >= 0 and ret_change >= 0:

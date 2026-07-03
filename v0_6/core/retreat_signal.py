@@ -64,6 +64,20 @@ def build_retreat_cross_section(
     if day.empty:
         return pd.DataFrame()
 
+    # 字段映射：真实 field → 旧公式期望的 field
+    _field_map = {
+        "ret5": "avg_ret5", "ret10": "avg_ret10",
+        "ret20": "avg_ret20", "ret60": "avg_ret60",
+        "above20": "breadth_ma20", "above60": "breadth_ma60",
+        "ret5_median": "median_ret5", "ret20_median": "median_ret20",
+    }
+    for old, new in _field_map.items():
+        if new in day.columns and old not in day.columns:
+            day[old] = day[new]
+
+    # 缺失字段用 np.nan（后续 rank/阈值会因 NaN 输出空）
+    # drawdown20/amount5_60 等复杂字段在当前数据中不存在，保持 NaN
+
     # 2. 过滤股票数不足的行业
     if "n" in day.columns:
         day = day[day["n"] >= min_stocks_per_industry].copy()
@@ -72,9 +86,10 @@ def build_retreat_cross_section(
         return pd.DataFrame()
 
     # 3. 全量横截面百分位排名（pct=True → 0~1 百分位）
-    for col in _RANK_COLS:
-        if col in day.columns:
-            day[col + "_rank"] = day[col].rank(pct=True)
+    # 只对存在且非全空的行计算 rank
+    available_rank_cols = [c for c in _RANK_COLS if c in day.columns and day[c].notna().sum() > 1]
+    for col in available_rank_cols:
+        day[col + "_rank"] = day[col].rank(pct=True)
 
     # 4. 计算评分（与老系统一致）
     # warming_score_raw

@@ -33,8 +33,8 @@ def _make_industry_daily(struct="broad", n_days=30):
             above20 = 0.45 + np.random.normal(0, 0.02)
         elif struct == "weakening":
             ret20 = -0.02 + 0.001 * i  # 逐渐转弱
-            ret20_median = -0.01 + 0.001 * i
-            above20 = 0.40 - 0.003 * i  # 宽度连续下降
+            ret20_median = -0.04 + 0.001 * i  # 中位数转弱
+            above20 = 0.40 - 0.010 * i  # 宽度连续大幅下降
         else:
             ret20 = 0.05
             ret20_median = 0.04
@@ -44,11 +44,11 @@ def _make_industry_daily(struct="broad", n_days=30):
             "trade_date": d.strftime("%Y-%m-%d"),
             "industry": "测试行业",
             "n": 30,
-            "ret20": ret20,
-            "ret20_median": ret20_median,
-            "ret60": ret20 * 1.5,
-            "above20": max(0.1, above20),
-            "up_ratio": max(0.1, above20 * 0.9),
+            "avg_ret20": ret20,
+            "median_ret20": ret20_median,
+            "avg_ret60": ret20 * 1.5,
+            "breadth_ma20": max(0.1, above20),
+            "breadth_ma60": max(0.1, above20 * 0.85),
         })
     return pd.DataFrame(data)
 
@@ -106,8 +106,9 @@ def test_relative_strength_ranking():
                 "trade_date": d.strftime("%Y-%m-%d"),
                 "industry": f"行业{j}",
                 "n": 30,
-                "ret20": np.random.normal(0, 0.05),
-                "ret60": np.random.normal(0, 0.10),
+                "avg_ret20": np.random.normal(0, 0.05),
+                "avg_ret60": np.random.normal(0, 0.10),
+                "breadth_ma20": 0.5,
             })
     multi = pd.DataFrame(data)
     result = compute_relative_strength(multi, "行业5", "2026-07-09")
