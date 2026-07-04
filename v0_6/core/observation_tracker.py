@@ -354,9 +354,14 @@ def update_signal_cases(
     # ── Fix 4: 只处理当日正式信号 ──
     sd_dt = pd.to_datetime(signal_data_date)
     if not today_signals.empty and "signal_date" in today_signals.columns:
-        today_only = today_signals[
-            pd.to_datetime(today_signals["signal_date"]) == sd_dt
-        ].copy()
+        try:
+            sig_dates = pd.to_datetime(today_signals["signal_date"])
+        except Exception:
+            sig_dates = None
+        if sig_dates is not None:
+            today_only = today_signals[sig_dates == sd_dt].copy()
+        else:
+            today_only = today_signals
     else:
         today_only = today_signals
 
@@ -437,8 +442,14 @@ def update_signal_cases(
 
             for p in [5, 10, 20]:
                 col = f"forward_ret_{p}d"
-                if existing.at[idx, col] == "" or pd.isna(existing.at[idx, col]):
-                    existing.at[idx, col] = fwd.get(col, "")
+                val = existing.at[idx, col]
+                new_val = fwd.get(col)
+                if new_val is not None:
+                    # 只在有实际值时才覆盖
+                    existing.at[idx, col] = str(new_val)
+                elif isinstance(val, str) and val == "":
+                    # 保持空
+                    pass
 
             existing.at[idx, "max_return_20d"] = fwd.get("max_return_20d", "")
             existing.at[idx, "max_drawdown_20d"] = fwd.get("max_drawdown_20d", "")
