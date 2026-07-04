@@ -1513,7 +1513,7 @@ def main():
         )
         if radar_candidates:
             from v0_6.core.observation_tracker import compute_radar_streak, reset_radar_for_triggered
-            radar_candidates = compute_radar_streak(radar_candidates, signal_data_date)
+            radar_candidates = compute_radar_streak(radar_candidates, signal_data_date, industry_daily)
             # 正式信号触发后清除雷达跟踪
             if not today_signals.empty:
                 for _, sig in today_signals.iterrows():

@@ -82,20 +82,26 @@ def _make_radar_candidates():
 # ── 信号雷达 ──
 
 def test_radar_streak_increments_on_consecutive_days(monkeypatch):
-    """连续两天进入雷达时 streak=2"""
+    """连续两天进入雷达时 streak=2（持久化 + 交易日连续）"""
     from v0_6.core.observation_tracker import compute_radar_streak
-    import v0_6.core.observation_tracker as ot
-    monkeypatch.setattr(ot, "_radar_history", {})
+    import v0_6.core.config as cfg
+    tmp = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp)
 
-    cands_day1 = [{"industry": "生物制药-streak测试", "breadth": 0.42, "vol_ratio": 1.08,
+    ind_daily = _make_industry_daily(days=10)
+    dates = sorted(ind_daily["trade_date"].unique().tolist())
+
+    industry = "生物制药-streak持久化测试"
+
+    cands_day1 = [{"industry": industry, "breadth": 0.42, "vol_ratio": 1.08,
                     "avg_ret20": -0.05, "missing": ["20 日收益仍为 -5.0%"]}]
-    enhanced1 = compute_radar_streak(cands_day1, "2026-07-01")
+    enhanced1 = compute_radar_streak(cands_day1, dates[0], ind_daily)
     assert enhanced1[0]["consecutive_radar_days"] == 1
     assert enhanced1[0]["watch_level"] == "WATCH"
 
-    cands_day2 = [{"industry": "生物制药-streak测试", "breadth": 0.43, "vol_ratio": 1.09,
+    cands_day2 = [{"industry": industry, "breadth": 0.43, "vol_ratio": 1.09,
                     "avg_ret20": -0.03, "missing": ["20 日收益仍为 -3.0%"]}]
-    enhanced2 = compute_radar_streak(cands_day2, "2026-07-02")
+    enhanced2 = compute_radar_streak(cands_day2, dates[1], ind_daily)
     assert enhanced2[0]["consecutive_radar_days"] == 2
     assert enhanced2[0]["watch_level"] == "STRONG_WATCH"
 
