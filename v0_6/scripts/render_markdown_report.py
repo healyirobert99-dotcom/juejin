@@ -189,7 +189,7 @@ def render_markdown_report(
     has_items = False
     for r in (monitoring or []):
         if not r.get("source_industry"):
-            lines.append(f"1. **{r.get('target', '?')}** 来源行业尚未补录，暂不能进行主线、强度和退潮分析。")
+            lines.append(f"1. **{r.get('target', '?')}** 来源行业尚未补录——这是一次性修复任务，不是每日任务。补录后后续日报会自动使用该来源行业，主线、强度和退潮分析自动生效。")
             has_items = True
         action = r.get("action", "")
         if action == "CLEAR":

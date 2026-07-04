@@ -819,6 +819,9 @@ def render_position_card(r: dict) -> str:
         ind_status_html = """
     <div class="led-stops" style="font-size:10px;color:var(--accent);margin-top:2px;">
       来源行业：待补录
+    </div>
+    <div style="font-size:9px;color:var(--ink-3);margin-top:1px;">
+      一次性补录后，后续日报自动分析。
     </div>"""
 
     return f"""
@@ -1599,6 +1602,22 @@ def main():
     print(f"\n🎉 {_VL} 日报完成！")
     print(f"  HTML 快速版：file:///{html_path.as_posix()}")
     print(f"  Markdown 研究版：{md_path}")
+
+    # ── v1.1: 来源行业补录提示 ──
+    missing_si = [p.get("target", "?") for p in open_positions
+                  if p.get("source_industry_status") in ("MISSING", None)]
+    if missing_si:
+        print(f"\n⚠ 来源行业待补录：")
+        for t in missing_si:
+            print(f"  - {t}")
+        print()
+        print("这不是每日任务，只需对历史缺失持仓补录一次。")
+        print("补录后，主线结构、相对强度、趋势延续和退潮监控会自动生效。")
+        print()
+        print("执行：")
+        print("python v0_6/scripts/backfill_position_source.py")
+    else:
+        print("\n✓ 所有开放持仓均已记录来源行业")
     return 0
 
 
