@@ -293,9 +293,12 @@ def _compute_forward_returns(
     periods: list[int] = [5, 10, 20],
 ) -> dict[str, float | None]:
     """计算从 start_date 次日起 N 个交易日的复利收益"""
+    if not start_date or start_date == "" or start_date == "nan":
+        return {f"forward_ret_{p}d": None for p in periods}
+
     ind_data = industry_daily[
         (industry_daily["industry"] == industry) &
-        (industry_daily["trade_date"] > start_date)
+        (industry_daily["trade_date"] > str(start_date))
     ].sort_values("trade_date")
 
     if ind_data.empty:
@@ -435,7 +438,11 @@ def update_signal_cases(
             status = existing.at[idx, "current_status"]
 
             calc_start = formal_date or first_date
-            if not calc_start:
+            if not calc_start or calc_start == "":
+                continue
+
+            # 确保 calc_start 是有效日期字符串
+            if calc_start and len(str(calc_start)) < 8:
                 continue
 
             fwd = _compute_forward_returns(industry_daily, ind, calc_start)
