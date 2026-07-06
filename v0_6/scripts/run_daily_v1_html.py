@@ -55,11 +55,12 @@ HTML_STYLE = """
   /* === 编辑风档案色板（OKLCH，避开纯灰） === */
   --paper:        oklch(97% 0.012 80);     /* 奶白，带极轻暖 */
   --paper-2:      oklch(94% 0.014 78);     /* 略深底色 */
-  --ink:          oklch(22% 0.018 50);     /* 暖墨主文字 */
-  --ink-2:        oklch(42% 0.020 50);     /* 次级文字 */
-  --ink-3:        oklch(60% 0.018 55);     /* 注释 */
-  --rule:         oklch(85% 0.015 75);     /* 暖灰分隔线 */
-  --rule-2:       oklch(90% 0.013 78);
+  --ink:          oklch(18% 0.018 50);     /* 深墨主文字（加深提高对比度） */
+  --ink-2:        oklch(38% 0.022 50);     /* 次级文字（加深） */
+  --ink-3:        oklch(52% 0.020 55);     /* 注释（加深） */
+  --rule:         oklch(83% 0.015 75);     /* 暖灰分隔线 */
+  --rule-2:       oklch(88% 0.013 78);
+  --card-bg:      oklch(98% 0.01 80);      /* 卡片背景 */
 
   /* 勃艮第 + 暗金（金融专业色，避开 AI 紫蓝渐变） */
   --accent:       oklch(45% 0.16 22);      /* 勃艮第红——告警、止损 */
@@ -86,15 +87,15 @@ body {
   font-family: var(--font-body);
   background: var(--paper);
   color: var(--ink);
-  line-height: 1.6;
-  font-size: 16px;
+  line-height: 1.75;
+  font-size: 17px;
   font-feature-settings: "kern", "liga";
   -webkit-font-smoothing: antialiased;
 }
 
 /* === 页面骨架 === */
 .sheet {
-  max-width: 780px;
+  max-width: 840px;
   margin: 0 auto;
   padding: var(--u6) var(--u4) var(--u8);
   background: var(--paper);
@@ -109,7 +110,7 @@ body {
   bottom: var(--u6);
   width: 1px;
   background: var(--accent);
-  opacity: 0.35;
+  opacity: 0.25;
 }
 @media (max-width: 720px) {
   .sheet { padding: var(--u4) var(--u3) var(--u6); }
@@ -222,21 +223,22 @@ body {
 
 /* === 章节（编辑风：编号 + 标题） === */
 .section { margin-bottom: var(--u8); }
+.section > * + * { margin-top: var(--u2); }
 .sec-head {
   display: flex;
   align-items: baseline;
   gap: var(--u2);
-  margin-bottom: var(--u3);
+  margin-bottom: var(--u4);
   padding-bottom: var(--u2);
-  border-bottom: 1px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
 }
 .sec-num {
   font-family: var(--font-display);
   font-weight: 400;
   font-style: italic;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--accent);
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 .sec-title {
   font-family: var(--font-display);
@@ -375,21 +377,24 @@ body {
 }
 
 /* === 持仓卡（报纸分栏） === */
-.ledgers { display: flex; flex-direction: column; gap: 0; }
+.ledgers { display: flex; flex-direction: column; gap: var(--u2); }
 .ledger {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--u3);
-  padding: var(--u3) 0;
-  border-top: 1px solid var(--rule);
+  gap: var(--u4);
+  padding: var(--u4) var(--u3);
+  background: var(--card-bg);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
   position: relative;
+  margin-bottom: var(--u2);
 }
-.ledger:last-child { border-bottom: 1px solid var(--rule); }
+.ledger:last-child { margin-bottom: 0; }
 .ledger::before {
   content: "";
   position: absolute;
-  top: var(--u3);
-  left: -8px;
+  top: var(--u4);
+  left: -12px;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -409,7 +414,7 @@ body {
   font-size: 24px;
   letter-spacing: -0.01em;
   color: var(--ink);
-  margin-bottom: 2px;
+  margin-bottom: var(--u);
 }
 .led-left .led-action-tag {
   display: inline-block;
@@ -418,11 +423,12 @@ body {
   font-style: italic;
   font-size: 16px;
   text-transform: uppercase;
-  letter-spacing: 0.15em;
-  padding: 2px 8px;
-  margin-bottom: var(--u);
+  letter-spacing: 0.12em;
+  padding: 3px 10px;
+  margin-bottom: var(--u2);
   background: var(--ink-3);
   color: var(--ink-on-dark);
+  border-radius: 3px;
 }
 .led-left .led-action-tag.CLEAR    { background: var(--accent); }
 .led-left .led-action-tag.REDUCE_1_3{ background: var(--warn); }
@@ -458,14 +464,17 @@ body {
 .led-pct.positive { color: var(--accent-2); }
 .led-pct.negative { color: var(--accent); }
 .led-right .led-stops b { color: var(--ink); font-weight: 700; }
+.led-stops { padding: 3px 0; font-size: 15px; line-height: 1.6; }
 
 .led-advice {
   grid-column: 1 / -1;
   margin-top: var(--u2);
   padding: var(--u2) var(--u3);
   font-size: 16px;
+  line-height: 1.7;
   font-style: italic;
-  border-left: 2px solid var(--rule);
+  border-left: 3px solid var(--rule);
+  border-radius: 4px;
   color: var(--ink-2);
   background: var(--neutral-bg);
 }
@@ -645,11 +654,19 @@ body {
   letter-spacing: 0.02em;
 }
 /* 折叠分析 */
-.analysis-detail { margin-top: 4px; border-top: 1px solid var(--rule); padding-top: 4px; }
-.analysis-detail summary { cursor: pointer; font-size: 16px; color: var(--ink-3); font-family: var(--font-ui); user-select: none; }
+.analysis-detail { margin-top: var(--u2); border-top: 1px solid var(--rule); padding-top: var(--u2); }
+.analysis-detail summary { cursor: pointer; font-size: 15px; color: var(--ink-2); font-family: var(--font-display); user-select: none; padding: var(--u) 0; font-weight: 600; }
 .analysis-detail summary::-webkit-details-marker { display: none; }
 .analysis-detail summary::before { content: '▸ '; }
 .analysis-detail[open] summary::before { content: '▾ '; }
+.analysis-body { padding: var(--u2) 0 var(--u2) var(--u2); border-left: 2px solid var(--rule-2); margin-left: 4px; }
+.analysis-body p { margin: var(--u) 0; font-size: 15px; line-height: 1.75; color: var(--ink-2); }
+.mini-metrics { width: 100%; border-collapse: collapse; margin: var(--u) 0; }
+.mini-metrics td { padding: 6px 12px; font-size: 15px; line-height: 1.7; border-bottom: 1px solid var(--rule); }
+.mini-metrics td:first-child { color: var(--ink-3); font-size: 14px; min-width: 90px; }
+.mini-metrics td:last-child { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.analysis-body ul { margin: var(--u) 0; padding-left: var(--u3); }
+.analysis-body li { font-size: 15px; line-height: 1.75; color: var(--ink-2); margin: 3px 0; }
 .analysis-body { font-size: 16px; line-height: 1.5; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }
 .analysis-body p { margin: 2px 0; }
 .analysis-body ul { margin: 2px 0; padding-left: 16px; }
