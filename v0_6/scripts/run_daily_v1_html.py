@@ -776,6 +776,7 @@ def render_position_card(r: dict) -> str:
     current_bucket = r.get("current_bucket", bucket)
     stop_price = r.get("stop_price", 0)
     tp_price = r.get("take_profit_price", 0)
+    entry_price = r.get("entry_price", 0)
     current_price = r.get("current_price", 0)
     price_date = r.get("today", "")
 
@@ -846,119 +847,89 @@ def render_position_card(r: dict) -> str:
   <div class="led-left">
     <div class="led-name">{source_ind + ' · ' if source_ind else ''}{r.get('name') or r.get('target_name') or r.get('target', '?')}</div>
     <span class="led-action-tag {action}">{action}</span>
-    <div class="led-bucket"><b>{bucket}</b>{bucket_indicator}</div>
+    {ind_status_html}
   </div>
   <div class="led-right">
     <div class="led-pct {ret_class}">{fmt_pct(ret)}</div>
-    <div class="led-stops">入场 {r['entry_date']}</div>
-    <div class="led-stops">现价 {fmt_price(current_price)}</div>
-    <div class="led-stops" style="font-size:13px;color:var(--ink-3);">价格截至 {price_date}</div>
-    <div class="led-stops">止损 <b>{fmt_price(stop_price)}</b> · 止盈 <b>{fmt_price(tp_price)}</b></div>{ind_status_html}
+    <div class="led-stops">成本 {fmt_price(entry_price)} · 现价 {fmt_price(current_price)} · 止损 {fmt_price(stop_price)}</div>
+    <div class="led-advice {action}">{advice}</div>
   </div>
-  <div class="led-advice {action}">{advice}</div>
 {_render_analysis_details(r, source_ind)}
 </article>
 """
 
 
 def _render_analysis_details(r: dict, source_ind: str | None) -> str:
-    """生成四个折叠分析入口（主线结构、相对强度、退潮、价格风控）"""
+    """生成折叠分析入口（仅在有来源行业时展示）"""
+    if not source_ind:
+        return ""
+
     parts = []
+    action = r.get("action", "")
+    auto_open = action in ("CLEAR", "RETREAT_REDUCE_1_3", "REDUCE_1_3")
 
-    # 主线结构
+    # ── 主线结构 ──
     ms = r.get("mainline_structure") or {}
-    if source_ind and ms:
-        auto = " open" if ms.get("structure") in ("INTERNAL_WEAKENING", "UNCLEAR") else ""
-        parts.append(f"""  <details class="analysis-detail"{auto}>
-    <summary>查看主线结构依据</summary>
+    if ms:
+        parts.append(f"""  <details class="analysis-detail"{' open' if auto_open else ''}>
+    <summary>主线结构：{ms.get('structure_label', '?')}</summary>
     <div class="analysis-body">
-      <p><b>{ms.get('structure_label', '?')}</b> — {ms.get('summary', '—')}</p>
-      <p>持仓建议：{ms.get('holding_guidance', '—')}</p>
-      {_metrics_html(ms.get('key_metrics', {}))}
-      {_evidence_html("支持依据", ms.get('supporting_evidence', []))}
-      {_evidence_html("风险", ms.get('risk_evidence', []))}
-    </div>
-  </details>""")
-    elif source_ind:
-        parts.append("""  <details class="analysis-detail">
-    <summary>查看主线结构依据</summary>
-    <div class="analysis-body"><p>暂不可判断（待补录来源行业）</p></div>
-  </details>""")
-
-    # 相对强度
-    rs = r.get("relative_strength") or {}
-    if source_ind and rs:
-        parts.append(f"""  <details class="analysis-detail">
-    <summary>查看相对强度依据</summary>
-    <div class="analysis-body">
-      <p><b>{rs.get('strength_label', '?')}</b> — 20日排名前 {rs.get('pct_20d', '?')}%</p>
-      {_metrics_html({k: v for k, v in rs.items() if k in ('ret20_rank', 'ret60_rank', 'rank_change_10d', 'pct_60d', 'n_industries') and v is not None})}
-      <p style="font-size:13px;color:var(--ink-3);">仅用于辅助持有，不产生交易动作。</p>
+      <p>{ms.get('summary', '—')}</p>
     </div>
   </details>""")
 
-    # 退潮
+    # ── 退潮 ──
     ret_score = r.get("retreat_score", 0)
-    ret_stage = r.get("retreat_stage")
     ret_action = r.get("retreat_action", "NORMAL")
-    if source_ind:
-        auto_retreat = " open" if ret_action in ("CONFIRMED_RETREAT",) else ""
-        components = r.get("retreat_components", {}) or {}
-        penalties = r.get("retreat_penalties", {}) or {}
-        triggers = []
-        if float(components.get("ret5", 0)) < -0.08: triggers.append("5日急跌")
-        if float(components.get("drawdown20", 0)) < -0.10: triggers.append("回撤过大")
-        if float(components.get("above20", 0)) < 0.40: triggers.append("宽度不足")
-        trig_str = "、".join(triggers) if triggers else "无"
-        offset_items = _evidence_html("抵消因素",
-            _e(float(components.get("ret5", 0)) > 0, "5日收益转正"),
-            _e(float(components.get("above20", 0)) >= 0.35, "宽度回升至 35% 以上"),
-        )
+    if ret_action == "NORMAL":
+        retreat_text = "正常"
+    elif ret_action == "CONFIRMED_RETREAT":
+        retreat_text = f"确认退潮（{ret_score:.0f}分）"
+    else:
+        retreat_text = f"退潮预警（{ret_score:.0f}分）"
 
-        action_text = {
-            "NORMAL": "当前未达到退潮预警条件。",
-            "CONFIRMED_RETREAT": "退潮条件达到确认标准，建议下一交易日减仓 1/3。",
-        }.get(ret_action, "行业内部出现转弱迹象，暂不减仓，继续观察。")
-
-        parts.append(f"""  <details class="analysis-detail"{auto_retreat}>
-    <summary>查看退潮判断依据</summary>
+    parts.append(f"""  <details class="analysis-detail"{' open' if ret_action == 'CONFIRMED_RETREAT' else ''}>
+    <summary>退潮：{retreat_text}</summary>
     <div class="analysis-body">
-      <p>评分 <b>{ret_score:.1f}</b> · 阶段 <b>{ret_stage or '无'}</b> · {ret_action}</p>
-      <p>{action_text}</p>
-      <p style="font-size:13px;">触发: {trig_str} · 抵消: {'、'.join(offset_items) if offset_items else '无'}</p>
-      {_metrics_html(components)}
-      {_metrics_html({k: v for k, v in penalties.items()}, prefix="惩罚: ")}
+      {_retreat_detail_html(r)}
     </div>
   </details>""")
 
-    # 价格风控
-    price_auto = " open" if r.get("action") in ("CLEAR", "REDUCE_1_3", "RETREAT_REDUCE_1_3") else ""
-    stop = r.get("stop_price", 0)
-    tp = r.get("take_profit_price", 0)
+    # ── 风控 ──
     entry = r.get("entry_price", 0)
     current = r.get("current_price", 0)
-    dist_stop = r.get("distance_to_stop", 0) * 100
-    dist_tp = r.get("distance_to_tp", 0) * 100
-    parts.append(f"""  <details class="analysis-detail"{price_auto}>
-    <summary>查看价格风控明细</summary>
+    stop = r.get("stop_price", 0)
+    parts.append(f"""  <details class="analysis-detail">
+    <summary>风控明细</summary>
     <div class="analysis-body">
       {_metrics_html({
-          "买入价": f"{entry:.4f}" if entry else "—",
-          "当前价": f"{current:.4f}" if current else "—",
-          "收益": f"{r.get('return_pct', 0)*100:.1f}%",
-          "入场桶": r.get("progress_bucket_at_entry", "—"),
-          "当前桶": r.get("current_bucket", "—"),
+          "成本价": f"{entry:.4f}" if entry else "—",
+          "现价": f"{current:.4f}" if current else "—",
+          "盈亏": f"{r.get('return_pct', 0)*100:+.1f}%",
           "止损价": f"{stop:.4f}" if stop else "—",
-          "止盈价": f"{tp:.4f}" if tp else "—",
-          "距止损": f"{dist_stop:.0f}%" if dist_stop else "—",
-          "距止盈": f"{dist_tp:.0f}%" if dist_tp else "—",
       })}
-      <p style="font-size:13px;color:var(--ink-3);">价格风控是最终硬防线，与行业退潮并行。</p>
     </div>
   </details>""")
 
     return "\n".join(parts)
 
+
+def _retreat_detail_html(r: dict) -> str:
+    """退潮判断展开内容"""
+    ret_score = r.get("retreat_score", 0)
+    ret_stage = r.get("retreat_stage", "—")
+    ret_action = r.get("retreat_action", "NORMAL")
+
+    lines = [f"<p>评分 <b>{ret_score:.1f}</b> · 阶段 <b>{ret_stage or '无'}</b></p>"]
+
+    if ret_action == "NORMAL":
+        lines.append("<p>未达退潮预警，按正常规则持有。</p>")
+    elif ret_action == "CONFIRMED_RETREAT":
+        lines.append("<p style='color:var(--accent);font-weight:600;'>退潮已确认，建议下一交易日减仓 1/3。</p>")
+    else:
+        lines.append("<p>行业内部出现转弱迹象，暂不减仓，继续观察。</p>")
+
+    return "\n".join(lines)
 
 def _metrics_html(d: dict, prefix: str = "") -> str:
     if not d: return ""
