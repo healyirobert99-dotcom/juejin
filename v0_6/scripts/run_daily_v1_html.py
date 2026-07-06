@@ -1154,7 +1154,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
         html.append('    </p>')
 
         if not radar_candidates:
-            html.append('    <div class="empty">暂无进入临界区的行业</div>')
+            html.append('    <div class="empty">今日暂无新进入临界区的行业</div>')
         else:
             html.append('    <div style="display:flex;flex-direction:column;gap:var(--u3);">')
             for cand in radar_candidates:
@@ -1245,6 +1245,36 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
           </div>
         </div>""")
             html.append('    </div>')
+
+        # ── v1.1: 此前观察历史（折叠） ──
+        try:
+            from v0_6.core.observation_tracker import _read_radar_state
+            prev_state = _read_radar_state()
+            today_inds = {c["industry"] for c in (radar_candidates or [])}
+            prev_only = prev_state[~prev_state["industry"].isin(today_inds)] if not prev_state.empty else prev_state
+            if not prev_state.empty:
+                html.append(f"""
+        <details class="analysis-detail" style="margin-top:var(--u3);">
+          <summary style="font-size:12px;color:var(--ink-3);cursor:pointer;">
+            查看此前观察记录（{len(prev_state)} 个行业）
+          </summary>
+          <div class="analysis-body" style="margin-top:var(--u);">""")
+                for _, row in prev_state.iterrows():
+                    r_ind = row.get("industry", "?")
+                    r_streak = row.get("consecutive_radar_days", "1")
+                    r_missing = row.get("last_missing_text", "—")
+                    r_breadth = row.get("last_breadth", "")
+                    b_disp = f"{float(r_breadth)*100:.1f}%" if r_breadth and r_breadth not in ("", "nan") else "—"
+                    r_wl = "强观察" if row.get("last_watch_level","") == "STRONG_WATCH" else "观察中"
+                    in_today = "●" if r_ind in today_inds else "○"
+                    html.append(f"""            <div style="font-size:11px;color:var(--ink-2);padding:2px 0;">
+              {in_today} <b>{r_ind}</b> · {r_wl} · 连续{r_streak}日 · 宽度{b_disp} · {r_missing}
+            </div>""")
+                html.append("""          </div>
+        </details>""")
+        except Exception:
+            pass
+
         html.append('  </section>')
 
     # ── v1.1 行业大类联动 ──

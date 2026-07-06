@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 
 
@@ -107,7 +108,30 @@ def render_markdown_report(
         for i, cand in enumerate(radar_candidates, 1):
             _append_radar_detail(lines, cand, i)
     else:
-        lines.append("今日无 3/4 观察行业。")
+        lines.append("今日无新进入 3/4 观察的行业。")
+        # ── v1.1: 显示此前仍在观察期的行业 ──
+        try:
+            from v0_6.core.observation_tracker import _read_radar_state
+            prev_state = _read_radar_state()
+            if not prev_state.empty:
+                lines.append("")
+                lines.append("**此前观察中的行业：**")
+                lines.append("")
+                lines.append("| 行业 | 连续天数 | 缺失条件 | 最近宽度 | 状态 |")
+                lines.append("|---|---:|---:|---|")
+                for _, row in prev_state.iterrows():
+                    ind = row.get("industry", "?")
+                    streak = row.get("consecutive_radar_days", "1")
+                    missing = row.get("last_missing_text", "")
+                    breadth = row.get("last_breadth", "")
+                    b_str = f"{float(breadth)*100:.1f}%" if breadth and breadth not in ("", "nan") else "—"
+                    wl = row.get("last_watch_level", "WATCH")
+                    wl_text = "强观察" if wl == "STRONG_WATCH" else "观察中"
+                    lines.append(f"| {ind} | {streak} | {missing} | {b_str} | {wl_text} |")
+                lines.append("")
+                lines.append("以上行业今日未满足 3/4 条件，已退出雷达观察。若条件恢复可重新进入。")
+        except Exception:
+            pass
         lines.append("")
 
     # ── v1.1: 行业大类联动 ──
@@ -132,7 +156,7 @@ def render_markdown_report(
 
     # ── v1.1: 近期案例跟踪 ──
     if recent_cases is not None and not recent_cases.empty:
-        lines.append("## 三、近期信号案例跟踪")
+        lines.append("## 三½、近期信号案例跟踪")
         lines.append("")
         lines.append("| 行业 | 首次雷达 | 正式触发 | 5日 | 10日 | 20日 | 最大涨幅 | 最大回撤 |")
         lines.append("|---|---:|---:|---:|---:|---:|")
@@ -140,11 +164,24 @@ def render_markdown_report(
             ind = case.get("industry", "?")
             frd = case.get("first_radar_date", "")
             fts = "是" if case.get("formal_triggered") == "1" else "—"
-            f5 = f"{float(case.get('forward_ret_5d','') or 0)*100:+.1f}%" if case.get("forward_ret_5d") not in ("", None) else "待更新"
-            f10 = f"{float(case.get('forward_ret_10d','') or 0)*100:+.1f}%" if case.get("forward_ret_10d") not in ("", None) else "待更新"
-            f20 = f"{float(case.get('forward_ret_20d','') or 0)*100:+.1f}%" if case.get("forward_ret_20d") not in ("", None) else "待更新"
-            mr = f"{float(case.get('max_return_20d','') or 0)*100:+.1f}%" if case.get("max_return_20d") not in ("", None) else "待更新"
-            dd = f"{float(case.get('max_drawdown_20d','') or 0)*100:+.1f}%" if case.get("max_drawdown_20d") not in ("", None) else "待更新"
+
+            def _safe_pct(val, suffix=""):
+                """安全格式化百分比，处理 nan/空/None"""
+                if val is None or val == "" or val == "nan" or val == "None":
+                    return "待更新"
+                try:
+                    v = float(val)
+                    if np.isnan(v):
+                        return "待更新"
+                    return f"{v*100:+.1f}%"
+                except (ValueError, TypeError):
+                    return "待更新"
+
+            f5 = _safe_pct(case.get("forward_ret_5d"))
+            f10 = _safe_pct(case.get("forward_ret_10d"))
+            f20 = _safe_pct(case.get("forward_ret_20d"))
+            mr = _safe_pct(case.get("max_return_20d"))
+            dd = _safe_pct(case.get("max_drawdown_20d"))
             lines.append(f"| {ind} | {frd} | {fts} | {f5} | {f10} | {f20} | {mr} | {dd} |")
         lines.append("")
 
