@@ -15,6 +15,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from .config import RULES
+
 
 # ═══════════════════ 主线结构 ═══════════════════
 
@@ -44,9 +46,10 @@ def classify_mainline_structure(
         return _unclear("数据不足（少于 10 个交易日）")
 
     today = ind_rec.iloc[-1]
+    min_stocks = RULES.get("signal", {}).get("min_stocks_per_industry", 20)
     n_stocks = int(today.get("n", 0))
-    if n_stocks < 20:
-        return _unclear(f"行业股票数不足（{n_stocks} < 20）")
+    if n_stocks < min_stocks:
+        return _unclear(f"行业股票数不足（{n_stocks} < {min_stocks}）")
 
     # 关键指标（使用真实字段名）
     required = ["avg_ret20", "median_ret20", "breadth_ma20", "n"]
