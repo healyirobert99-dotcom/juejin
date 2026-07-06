@@ -54,24 +54,27 @@ def _case_id(industry: str, first_date: str) -> str:
 
 # ── 雷达状态持久化 ─────────────────────────────────────
 
+_RADAR_COLS = [
+    "industry", "first_radar_date", "last_radar_date",
+    "consecutive_radar_days", "last_missing_key", "last_missing_text",
+    "last_breadth", "last_vol_ratio", "last_avg_ret20",
+    "last_watch_level", "status", "exited_date", "updated_at",
+]
+
+
 def _read_radar_state() -> pd.DataFrame:
     p = _radar_state_path()
     if not p.exists():
-        return pd.DataFrame(columns=[
-            "industry", "first_radar_date", "last_radar_date",
-            "consecutive_radar_days", "last_missing_key", "last_missing_text",
-            "last_breadth", "last_vol_ratio", "last_avg_ret20",
-            "last_watch_level", "updated_at",
-        ])
+        return pd.DataFrame(columns=_RADAR_COLS)
     try:
-        return pd.read_csv(str(p), dtype=str)
+        df = pd.read_csv(str(p), dtype=str)
+        # 补齐缺失列
+        for c in _RADAR_COLS:
+            if c not in df.columns:
+                df[c] = ""
+        return df
     except Exception:
-        return pd.DataFrame(columns=[
-            "industry", "first_radar_date", "last_radar_date",
-            "consecutive_radar_days", "last_missing_key", "last_missing_text",
-            "last_breadth", "last_vol_ratio", "last_avg_ret20",
-            "last_watch_level", "updated_at",
-        ])
+        return pd.DataFrame(columns=_RADAR_COLS)
 
 
 def _write_radar_state(df: pd.DataFrame) -> None:
@@ -238,11 +241,32 @@ def compute_radar_streak(
             "is_improving": is_improving,
         })
 
-    # 不在当天雷达列表中的行业不自动清除，让其自然过期
-    # （下次进入雷达时如果日期不连续会自动重置 streak）
+    # 2) 未在今天雷达列表中的行业：保留在上次状态中，标记为 EXITED
+    today_industries = {c["industry"] for c in radar_candidates}
+    prev_df = _read_radar_state()
+    if not prev_df.empty:
+        for _, row in prev_df.iterrows():
+            ind = row.get("industry", "")
+            if ind and ind not in today_industries:
+                prev_status = row.get("status", "")
+                if prev_status != "EXITED":
+                    # 首次退出，记录退出日期
+                    row_dict = row.to_dict()
+                    row_dict["status"] = "EXITED"
+                    row_dict["exited_date"] = today
+                    row_dict["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    new_states.append(row_dict)
+                else:
+                    # 已经退出过，保留原样
+                    new_states.append(row.to_dict())
 
     # 持久化写入
     new_df = pd.DataFrame(new_states)
+    # 补齐缺失列
+    for c in _RADAR_COLS:
+        if c not in new_df.columns:
+            new_df[c] = ""
+    new_df = new_df[_RADAR_COLS]
     _write_radar_state(new_df)
 
     return enhanced

@@ -1246,31 +1246,55 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
         </div>""")
             html.append('    </div>')
 
-        # ── v1.1: 此前观察历史（折叠） ──
+        # ── v1.1: 此前观察历史（紧凑折叠） ──
         try:
             from v0_6.core.observation_tracker import _read_radar_state
             prev_state = _read_radar_state()
             today_inds = {c["industry"] for c in (radar_candidates or [])}
-            prev_only = prev_state[~prev_state["industry"].isin(today_inds)] if not prev_state.empty else prev_state
             if not prev_state.empty:
-                html.append(f"""
-        <details class="analysis-detail" style="margin-top:var(--u3);">
-          <summary style="font-size:12px;color:var(--ink-3);cursor:pointer;">
-            查看此前观察记录（{len(prev_state)} 个行业）
+                # 区分：当天活跃的、历史已退出但仍在追踪期的
+                active_rows = prev_state[prev_state.get("status", "") != "EXITED"] if "status" in prev_state.columns else prev_state
+                exited_rows = prev_state[prev_state.get("status", "") == "EXITED"] if "status" in prev_state.columns else pd.DataFrame()
+
+                if not active_rows.empty and len(active_rows) > 0:
+                    # 只显示不在当天雷达中的活跃行（已在主区显示的不重复）
+                    show_active = active_rows[~active_rows["industry"].isin(today_inds)]
+                    show_exited = exited_rows
+
+                    if not show_active.empty or not show_exited.empty:
+                        html.append("""
+        <details class="analysis-detail" style="margin-top:var(--u3);background:var(--bg-2);border-radius:4px;padding:var(--u2) var(--u3);">
+          <summary style="font-size:12px;color:var(--ink-3);cursor:pointer;font-weight:600;">
+            雷达观察追踪记录
           </summary>
-          <div class="analysis-body" style="margin-top:var(--u);">""")
-                for _, row in prev_state.iterrows():
-                    r_ind = row.get("industry", "?")
-                    r_streak = row.get("consecutive_radar_days", "1")
-                    r_missing = row.get("last_missing_text", "—")
-                    r_breadth = row.get("last_breadth", "")
-                    b_disp = f"{float(r_breadth)*100:.1f}%" if r_breadth and r_breadth not in ("", "nan") else "—"
-                    r_wl = "强观察" if row.get("last_watch_level","") == "STRONG_WATCH" else "观察中"
-                    in_today = "●" if r_ind in today_inds else "○"
-                    html.append(f"""            <div style="font-size:11px;color:var(--ink-2);padding:2px 0;">
-              {in_today} <b>{r_ind}</b> · {r_wl} · 连续{r_streak}日 · 宽度{b_disp} · {r_missing}
-            </div>""")
-                html.append("""          </div>
+          <div class="analysis-body" style="margin-top:var(--u2);">
+            <table style="width:100%;font-size:11px;border-collapse:collapse;color:var(--ink-2);">
+              <thead><tr style="text-align:left;border-bottom:1px solid var(--rule);color:var(--ink-3);">
+                <th style="padding:4px 6px;"></th><th style="padding:4px 6px;">行业</th>
+                <th style="padding:4px 6px;">状态</th><th style="padding:4px 6px;">连续</th>
+                <th style="padding:4px 6px;">宽度</th><th style="padding:4px 6px;">缺失条件</th>
+              </tr></thead><tbody>""")
+                        all_rows = pd.concat([show_active, show_exited]) if not show_exited.empty else show_active
+                        for _, row in all_rows.iterrows():
+                            r_ind = row.get("industry", "?")
+                            r_streak = row.get("consecutive_radar_days", "1")
+                            r_missing = row.get("last_missing_text", "—")
+                            r_breadth = row.get("last_breadth", "")
+                            b_disp = f"{float(r_breadth)*100:.1f}%" if r_breadth and r_breadth not in ("", "nan") else "—"
+                            row_status = row.get("status", "")
+                            is_exited = row_status == "EXITED"
+                            r_wl = "已退出" if is_exited else ("强观察" if row.get("last_watch_level","") == "STRONG_WATCH" else "观察中")
+                            color = "var(--ink-3)" if is_exited else "var(--ink-2)"
+                            html.append(f"""              <tr style="color:{color};border-bottom:1px solid var(--rule);">
+                <td style="padding:3px 6px;">{'·' if is_exited else ''}</td><td style="padding:3px 6px;font-weight:600;text-decoration:{'line-through' if is_exited else 'none'};">{r_ind}</td>
+                <td style="padding:3px 6px;">{r_wl}</td><td style="padding:3px 6px;">{r_streak}日</td>
+                <td style="padding:3px 6px;">{b_disp}</td><td style="padding:3px 6px;">{r_missing}</td>
+              </tr>""")
+                        html.append("""            </tbody></table>
+            <div style="font-size:10px;color:var(--ink-3);margin-top:var(--u);font-style:italic;">
+              删除线 = 观察周期已结束 · ● 上方卡片 = 当天活跃
+            </div>
+          </div>
         </details>""")
         except Exception:
             pass
