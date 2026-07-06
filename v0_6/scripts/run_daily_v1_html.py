@@ -910,7 +910,7 @@ def _render_analysis_details(r: dict, source_ind: str | None) -> str:
         if float(components.get("drawdown20", 0)) < -0.10: triggers.append("回撤过大")
         if float(components.get("above20", 0)) < 0.40: triggers.append("宽度不足")
         trig_str = "、".join(triggers) if triggers else "无"
-        offset_items = _build_evidence(
+        offset_items = _evidence_html("抵消因素",
             _e(float(components.get("ret5", 0)) > 0, "5日收益转正"),
             _e(float(components.get("above20", 0)) >= 0.35, "宽度回升至 35% 以上"),
         )
@@ -966,10 +966,27 @@ def _metrics_html(d: dict, prefix: str = "") -> str:
     return f"<table class='mini-metrics'>{prefix}{rows}</table>"
 
 
-def _evidence_html(title: str, items: list[str]) -> str:
-    if not items: return ""
-    lis = "".join(f"<li>{i}</li>" for i in items[:4])
-    return f"<p><b>{title}</b></p><ul>{lis}</ul>"
+def _evidence_html(title: str, *items: str) -> str:
+    """传入 (title, item1, item2, ...) 或 (title, [item1, item2])
+    
+    如果第二个参数是 list，取 list 中的内容。
+    """
+    if not items:
+        return ""
+    # 兼容旧调用: _evidence_html("标题", ["a","b"])
+    if len(items) == 1 and isinstance(items[0], list):
+        flat = items[0]
+    else:
+        flat = [i for i in items if i and str(i).strip()]
+    if not flat:
+        return ""
+    lis = "".join(f"<li>{i}</li>" for i in flat[:4])
+    return f"<p style=\"margin-top:var(--u);\"><b>{title}</b></p><ul>{lis}</ul>"
+
+
+def _e(condition: bool, label: str) -> str:
+    """辅助：条件成立时返回描述文本，否则返回空"""
+    return label if condition else ""
 
 
 # ============== 主渲染 ==============
