@@ -376,24 +376,20 @@ body {
   font-size: 14px;
 }
 
-/* === 持仓卡（报纸分栏） === */
-.ledgers { display: flex; flex-direction: column; gap: var(--u2); }
+/* === 持仓卡（单栏平铺） === */
+.ledgers { display: flex; flex-direction: column; gap: var(--u3); }
 .ledger {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--u4);
-  padding: var(--u4) var(--u3);
+  display: block;
+  padding: var(--u3);
   background: var(--card-bg);
   border: 1px solid var(--rule);
-  border-radius: 4px;
+  border-radius: 6px;
   position: relative;
-  margin-bottom: var(--u2);
 }
-.ledger:last-child { margin-bottom: 0; }
 .ledger::before {
   content: "";
   position: absolute;
-  top: var(--u4);
+  top: var(--u3);
   left: -12px;
   width: 8px;
   height: 8px;
@@ -406,71 +402,64 @@ body {
 .ledger.ADJUST::before    { background: var(--ink-3); }
 .ledger.HOLD::before      { background: var(--accent-2); }
 
-@media (max-width: 600px) { .ledger { grid-template-columns: 1fr; gap: var(--u2); } }
-
-.led-left .led-name {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 24px;
-  letter-spacing: -0.01em;
-  color: var(--ink);
+.led-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--u2);
   margin-bottom: var(--u);
 }
-.led-left .led-action-tag {
-  display: inline-block;
+.led-top .led-name {
   font-family: var(--font-display);
   font-weight: 700;
-  font-style: italic;
-  font-size: 16px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  padding: 3px 10px;
-  margin-bottom: var(--u2);
-  background: var(--ink-3);
-  color: var(--ink-on-dark);
-  border-radius: 3px;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
 }
-.led-left .led-action-tag.CLEAR    { background: var(--accent); }
-.led-left .led-action-tag.REDUCE_1_3{ background: var(--warn); }
-.led-left .led-action-tag.WATCH    { background: var(--warn); }
-.led-left .led-action-tag.ADJUST   { background: var(--ink); }
-.led-left .led-action-tag.HOLD     { background: var(--accent-2); }
-
-.led-left .led-bucket {
+.led-top .led-pct {
   font-family: var(--font-mono);
-  font-size: 14px;
-  color: var(--ink-2);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  font-weight: 900;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.led-left .led-bucket b { color: var(--ink); font-weight: 700; }
+.led-pct.positive { color: var(--accent-2); }
+.led-pct.negative { color: var(--accent); }
 
-.led-right {
-  text-align: right;
-  font-family: var(--font-mono);
+.led-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--u2);
+  flex-wrap: wrap;
+  margin-bottom: var(--u);
   font-size: 15px;
   color: var(--ink-2);
   line-height: 1.6;
 }
-.led-pct {
+.led-action-tag {
+  display: inline-block;
   font-family: var(--font-display);
-  font-weight: 900;
-  font-size: 30px;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  margin-bottom: 4px;
+  font-weight: 700;
+  font-style: italic;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 2px 10px;
+  border-radius: 3px;
+  color: var(--ink-on-dark);
+  background: var(--ink-3);
 }
-.led-pct.positive { color: var(--accent-2); }
-.led-pct.negative { color: var(--accent); }
-.led-right .led-stops b { color: var(--ink); font-weight: 700; }
-.led-stops { padding: 3px 0; font-size: 15px; line-height: 1.6; }
+.led-action-tag.CLEAR    { background: var(--accent); }
+.led-action-tag.REDUCE_1_3{ background: var(--warn); }
+.led-action-tag.WATCH    { background: var(--warn); }
+.led-action-tag.ADJUST   { background: var(--ink); }
+.led-action-tag.HOLD     { background: var(--accent-2); }
+.led-inline { font-size: 15px; color: var(--ink-2); }
 
 .led-advice {
-  grid-column: 1 / -1;
-  margin-top: var(--u2);
-  padding: var(--u2) var(--u3);
-  font-size: 16px;
+  margin-top: var(--u);
+  padding: var(--u) var(--u2);
+  font-size: 15px;
   line-height: 1.7;
   font-style: italic;
   border-left: 3px solid var(--rule);
@@ -667,6 +656,25 @@ body {
 .mini-metrics td:last-child { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .analysis-body ul { margin: var(--u) 0; padding-left: var(--u3); }
 .analysis-body li { font-size: 15px; line-height: 1.75; color: var(--ink-2); margin: 3px 0; }
+/* 平铺分析卡片 */
+.analysis-card {
+  display: flex;
+  gap: var(--u2);
+  padding: var(--u) 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 15px;
+  line-height: 1.7;
+}
+.analysis-card:last-child { border-bottom: none; }
+.ac-label {
+  min-width: 80px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.ac-value {
+  color: var(--ink);
+  flex: 1;
+}
 .analysis-body { font-size: 16px; line-height: 1.5; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }
 .analysis-body p { margin: 2px 0; }
 .analysis-body ul { margin: 2px 0; padding-left: 16px; }
@@ -844,92 +852,60 @@ def render_position_card(r: dict) -> str:
 
     return f"""
 <article class="ledger {action}">
-  <div class="led-left">
+  <div class="led-top">
     <div class="led-name">{source_ind + ' · ' if source_ind else ''}{r.get('name') or r.get('target_name') or r.get('target', '?')}</div>
-    <span class="led-action-tag {action}">{action}</span>
-    {ind_status_html}
-  </div>
-  <div class="led-right">
     <div class="led-pct {ret_class}">{fmt_pct(ret)}</div>
-    <div class="led-stops">成本 {fmt_price(entry_price)} · 现价 {fmt_price(current_price)} · 止损 {fmt_price(stop_price)}</div>
-    <div class="led-advice {action}">{advice}</div>
   </div>
+  <div class="led-meta">
+    <span class="led-action-tag {action}">{action}</span>
+    <span class="led-inline">成本 {fmt_price(entry_price)} · 现价 {fmt_price(current_price)} · 止损 {fmt_price(stop_price)}</span>{ind_status_html}
+  </div>
+  <div class="led-advice {action}">{advice}</div>
 {_render_analysis_details(r, source_ind)}
 </article>
 """
 
 
 def _render_analysis_details(r: dict, source_ind: str | None) -> str:
-    """生成折叠分析入口（仅在有来源行业时展示）"""
+    """持仓分析详情——直接平铺展示，不折叠"""
     if not source_ind:
         return ""
 
     parts = []
-    action = r.get("action", "")
-    auto_open = action in ("CLEAR", "RETREAT_REDUCE_1_3", "REDUCE_1_3")
 
     # ── 主线结构 ──
     ms = r.get("mainline_structure") or {}
     if ms:
-        parts.append(f"""  <details class="analysis-detail"{' open' if auto_open else ''}>
-    <summary>主线结构：{ms.get('structure_label', '?')}</summary>
-    <div class="analysis-body">
-      <p>{ms.get('summary', '—')}</p>
-    </div>
-  </details>""")
+        parts.append(f"""  <div class="analysis-card">
+    <div class="ac-label">主线结构</div>
+    <div class="ac-value"><b>{ms.get('structure_label', '?')}</b> — {ms.get('summary', '—')}</div>
+  </div>""")
 
     # ── 退潮 ──
     ret_score = r.get("retreat_score", 0)
     ret_action = r.get("retreat_action", "NORMAL")
-    if ret_action == "NORMAL":
-        retreat_text = "正常"
-    elif ret_action == "CONFIRMED_RETREAT":
-        retreat_text = f"确认退潮（{ret_score:.0f}分）"
+    if ret_action == "CONFIRMED_RETREAT":
+        retreat_line = f"<b style='color:var(--accent);'>确认退潮（{ret_score:.0f}分）— 建议减仓 1/3</b>"
+    elif ret_action != "NORMAL":
+        retreat_line = f"退潮预警（{ret_score:.0f}分）— 继续观察"
     else:
-        retreat_text = f"退潮预警（{ret_score:.0f}分）"
+        retreat_line = f"正常（{ret_score:.0f}分）"
 
-    parts.append(f"""  <details class="analysis-detail"{' open' if ret_action == 'CONFIRMED_RETREAT' else ''}>
-    <summary>退潮：{retreat_text}</summary>
-    <div class="analysis-body">
-      {_retreat_detail_html(r)}
-    </div>
-  </details>""")
+    parts.append(f"""  <div class="analysis-card">
+    <div class="ac-label">退潮信号</div>
+    <div class="ac-value">{retreat_line}</div>
+  </div>""")
 
     # ── 风控 ──
+    stop = r.get("stop_price", 0)
     entry = r.get("entry_price", 0)
     current = r.get("current_price", 0)
-    stop = r.get("stop_price", 0)
-    parts.append(f"""  <details class="analysis-detail">
-    <summary>风控明细</summary>
-    <div class="analysis-body">
-      {_metrics_html({
-          "成本价": f"{entry:.4f}" if entry else "—",
-          "现价": f"{current:.4f}" if current else "—",
-          "盈亏": f"{r.get('return_pct', 0)*100:+.1f}%",
-          "止损价": f"{stop:.4f}" if stop else "—",
-      })}
-    </div>
-  </details>""")
+    parts.append(f"""  <div class="analysis-card">
+    <div class="ac-label">风控</div>
+    <div class="ac-value">成本 ¥{entry:.3f} · 现价 ¥{current:.3f} · 止盈 ¥{r.get('take_profit_price',0):.3f} · 止损 ¥{stop:.3f}</div>
+  </div>""")
 
     return "\n".join(parts)
-
-
-def _retreat_detail_html(r: dict) -> str:
-    """退潮判断展开内容"""
-    ret_score = r.get("retreat_score", 0)
-    ret_stage = r.get("retreat_stage", "—")
-    ret_action = r.get("retreat_action", "NORMAL")
-
-    lines = [f"<p>评分 <b>{ret_score:.1f}</b> · 阶段 <b>{ret_stage or '无'}</b></p>"]
-
-    if ret_action == "NORMAL":
-        lines.append("<p>未达退潮预警，按正常规则持有。</p>")
-    elif ret_action == "CONFIRMED_RETREAT":
-        lines.append("<p style='color:var(--accent);font-weight:600;'>退潮已确认，建议下一交易日减仓 1/3。</p>")
-    else:
-        lines.append("<p>行业内部出现转弱迹象，暂不减仓，继续观察。</p>")
-
-    return "\n".join(lines)
 
 def _metrics_html(d: dict, prefix: str = "") -> str:
     if not d: return ""
