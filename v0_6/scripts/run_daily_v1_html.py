@@ -127,7 +127,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-family: var(--font-display);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--ink-2);
 }
@@ -167,7 +167,7 @@ body {
 @media (max-width: 600px) { .dl-title { text-align: left; } }
 .dl-subtitle {
   margin-top: var(--u2);
-  font-size: 13px;
+  font-size: 16px;
   color: var(--ink-2);
   font-style: italic;
   line-height: 1.5;
@@ -206,7 +206,7 @@ body {
 .metric.up   .metric-num { color: var(--accent-2); }
 .metric-key {
   margin-top: var(--u2);
-  font-size: 10px;
+  font-size: 16px;
   text-transform: uppercase;
   letter-spacing: 0.2em;
   color: var(--ink-3);
@@ -215,7 +215,7 @@ body {
 }
 .metric-note {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--ink-2);
   font-style: italic;
 }
@@ -249,7 +249,7 @@ body {
 .sec-tag {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 16px;
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.15em;
@@ -273,7 +273,7 @@ body {
 .dispatch-num {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 13px;
+  font-size: 16px;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
@@ -286,7 +286,7 @@ body {
 }
 .dispatch-meta {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 15px;
   color: var(--ink-2);
   text-align: right;
   line-height: 1.7;
@@ -297,7 +297,7 @@ body {
   font-family: var(--font-display);
   font-weight: 700;
   font-style: italic;
-  font-size: 10px;
+  font-size: 16px;
   text-transform: uppercase;
   letter-spacing: 0.15em;
   padding: 2px 6px;
@@ -314,7 +314,7 @@ body {
   gap: 6px;
   padding: 4px 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 15px;
   border-top: 1px dashed var(--rule);
   margin-top: 4px;
   flex-wrap: wrap;
@@ -327,7 +327,7 @@ body {
   background: var(--ink);
   color: var(--ink-on-dark);
   padding: 2px 6px;
-  font-size: 10px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.05em;
 }
@@ -343,7 +343,7 @@ body {
   font-weight: 700;
   background: var(--accent-bg);
   padding: 1px 5px;
-  font-size: 11px;
+  font-size: 14px;
 }
 .etf-purity {
   display: inline-block;
@@ -359,7 +359,7 @@ body {
 .etf-purity.bad { background: var(--accent); }
 .etf-conf {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 16px;
   color: var(--ink-3);
   font-style: italic;
 }
@@ -416,7 +416,7 @@ body {
   font-family: var(--font-display);
   font-weight: 700;
   font-style: italic;
-  font-size: 10px;
+  font-size: 16px;
   text-transform: uppercase;
   letter-spacing: 0.15em;
   padding: 2px 8px;
@@ -432,7 +432,7 @@ body {
 
 .led-left .led-bucket {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 14px;
   color: var(--ink-2);
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -442,7 +442,7 @@ body {
 .led-right {
   text-align: right;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 15px;
   color: var(--ink-2);
   line-height: 1.6;
 }
@@ -463,7 +463,7 @@ body {
   grid-column: 1 / -1;
   margin-top: var(--u2);
   padding: var(--u2) var(--u3);
-  font-size: 13px;
+  font-size: 16px;
   font-style: italic;
   border-left: 2px solid var(--rule);
   color: var(--ink-2);
@@ -495,7 +495,7 @@ body {
 .bucket-num {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--accent);
   letter-spacing: 0.1em;
 }
@@ -508,7 +508,7 @@ body {
 }
 .bucket-trigger {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 16px;
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -552,7 +552,7 @@ body {
   justify-content: space-between;
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--ink-3);
   letter-spacing: 0.05em;
 }
@@ -604,7 +604,7 @@ body {
   text-decoration: none;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 15px;
   text-transform: uppercase;
   letter-spacing: 0.15em;
   transition: background 120ms ease;
@@ -629,7 +629,7 @@ body {
   font-family: var(--font-display);
   font-weight: 500;
   font-style: italic;
-  font-size: 12px;
+  font-size: 15px;
   letter-spacing: 0.05em;
   transition: all 120ms ease;
 }
@@ -637,7 +637,7 @@ body {
 
 /* 数据日期提示（当生成日期 != 数据日期时） */
 .data-note {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--ink-3);
   font-family: var(--font-mono);
   font-style: italic;
@@ -646,15 +646,15 @@ body {
 }
 /* 折叠分析 */
 .analysis-detail { margin-top: 4px; border-top: 1px solid var(--rule); padding-top: 4px; }
-.analysis-detail summary { cursor: pointer; font-size: 10px; color: var(--ink-3); font-family: var(--font-ui); user-select: none; }
+.analysis-detail summary { cursor: pointer; font-size: 16px; color: var(--ink-3); font-family: var(--font-ui); user-select: none; }
 .analysis-detail summary::-webkit-details-marker { display: none; }
 .analysis-detail summary::before { content: '▸ '; }
 .analysis-detail[open] summary::before { content: '▾ '; }
-.analysis-body { font-size: 10px; line-height: 1.5; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }
+.analysis-body { font-size: 16px; line-height: 1.5; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }
 .analysis-body p { margin: 2px 0; }
 .analysis-body ul { margin: 2px 0; padding-left: 16px; }
 .analysis-body li { margin: 1px 0; }
-.mini-metrics { width: 100%; border-collapse: collapse; font-size: 10px; }
+.mini-metrics { width: 100%; border-collapse: collapse; font-size: 16px; }
 .mini-metrics td { padding: 1px 4px; border-bottom: 1px solid #eee; }
 .mini-metrics td:first-child { color: var(--ink-3); width: 40%; }
 @media print {
@@ -743,7 +743,7 @@ def render_position_card(r: dict) -> str:
   </div>
   <div class="led-right">
     <div class="led-stops">类型 {target_type} · 入场 {entry_date}</div>
-    <div class="led-stops" style="font-size:11px;color:var(--accent);">{err_msg}</div>
+    <div class="led-stops" style="font-size:14px;color:var(--accent);">{err_msg}</div>
   </div>
   <div class="led-advice" style="background:transparent;color:var(--ink-3);">暂不计算盈亏 · 请人工处理</div>
 </article>
@@ -812,12 +812,12 @@ def render_position_card(r: dict) -> str:
             triggers.append(retreat_stage[:5])
         trig_str = " · ".join(triggers[:2]) if triggers else ""
         ind_status_html = f"""
-    <div class="led-stops" style="font-size:10px;color:var(--ink-3);margin-top:2px;">
+    <div class="led-stops" style="font-size:13px;color:var(--ink-3);margin-top:2px;">
       来源 <b>{source_ind}</b> · 行业 <b>{ind_status}</b>{' · '+trig_str if trig_str else ''}
     </div>"""
     else:
         ind_status_html = """
-    <div class="led-stops" style="font-size:10px;color:var(--accent);margin-top:2px;">
+    <div class="led-stops" style="font-size:13px;color:var(--accent);margin-top:2px;">
       来源行业：待补录
     </div>
     <div style="font-size:9px;color:var(--ink-3);margin-top:1px;">
@@ -835,7 +835,7 @@ def render_position_card(r: dict) -> str:
     <div class="led-pct {ret_class}">{fmt_pct(ret)}</div>
     <div class="led-stops">入场 {r['entry_date']}</div>
     <div class="led-stops">现价 {fmt_price(current_price)}</div>
-    <div class="led-stops" style="font-size:10px;color:var(--ink-3);">价格截至 {price_date}</div>
+    <div class="led-stops" style="font-size:13px;color:var(--ink-3);">价格截至 {price_date}</div>
     <div class="led-stops">止损 <b>{fmt_price(stop_price)}</b> · 止盈 <b>{fmt_price(tp_price)}</b></div>{ind_status_html}
   </div>
   <div class="led-advice {action}">{advice}</div>
@@ -876,7 +876,7 @@ def _render_analysis_details(r: dict, source_ind: str | None) -> str:
     <div class="analysis-body">
       <p><b>{rs.get('strength_label', '?')}</b> — 20日排名前 {rs.get('pct_20d', '?')}%</p>
       {_metrics_html({k: v for k, v in rs.items() if k in ('ret20_rank', 'ret60_rank', 'rank_change_10d', 'pct_60d', 'n_industries') and v is not None})}
-      <p style="font-size:10px;color:var(--ink-3);">仅用于辅助持有，不产生交易动作。</p>
+      <p style="font-size:13px;color:var(--ink-3);">仅用于辅助持有，不产生交易动作。</p>
     </div>
   </details>""")
 
@@ -908,7 +908,7 @@ def _render_analysis_details(r: dict, source_ind: str | None) -> str:
     <div class="analysis-body">
       <p>评分 <b>{ret_score:.1f}</b> · 阶段 <b>{ret_stage or '无'}</b> · {ret_action}</p>
       <p>{action_text}</p>
-      <p style="font-size:10px;">触发: {trig_str} · 抵消: {'、'.join(offset_items) if offset_items else '无'}</p>
+      <p style="font-size:13px;">触发: {trig_str} · 抵消: {'、'.join(offset_items) if offset_items else '无'}</p>
       {_metrics_html(components)}
       {_metrics_html({k: v for k, v in penalties.items()}, prefix="惩罚: ")}
     </div>
@@ -936,7 +936,7 @@ def _render_analysis_details(r: dict, source_ind: str | None) -> str:
           "距止损": f"{dist_stop:.0f}%" if dist_stop else "—",
           "距止盈": f"{dist_tp:.0f}%" if dist_tp else "—",
       })}
-      <p style="font-size:10px;color:var(--ink-3);">价格风控是最终硬防线，与行业退潮并行。</p>
+      <p style="font-size:13px;color:var(--ink-3);">价格风控是最终硬防线，与行业退潮并行。</p>
     </div>
   </details>""")
 
@@ -1149,7 +1149,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
         html.append('      <span class="sec-title" style="font-size:22px;">信号雷达 · 候选观察</span>')
         html.append('      <span class="sec-tag">仅供观察</span>')
         html.append('    </div>')
-        html.append('    <p style="font-size:11px;color:var(--ink-3);font-style:italic;margin-bottom:var(--u3);font-family:var(--font-display);letter-spacing:0.05em;">')
+        html.append('    <p style="font-size:14px;color:var(--ink-3);font-style:italic;margin-bottom:var(--u3);font-family:var(--font-display);letter-spacing:0.05em;">')
         html.append('      四因子满足3项 · 尚未形成正式信号 · 不构成交易建议')
         html.append('    </p>')
 
@@ -1177,7 +1177,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                 is_improving = cand.get("is_improving", False)
 
                 if watch_level == "STRONG_WATCH":
-                    wl_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:10px;letter-spacing:0.1em;padding:2px 8px;background:var(--warn);color:var(--bg);">强观察</span>'
+                    wl_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:13px;letter-spacing:0.1em;padding:2px 8px;background:var(--warn);color:var(--bg);">强观察</span>'
                 else:
                     wl_tag = ""
 
@@ -1186,13 +1186,13 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                     streak_info = f" · {streak_info}"
 
                 # 状态标签
-                status_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:10px;letter-spacing:0.1em;padding:2px 8px;border:1px solid var(--warn);color:var(--warn);">{fpc}/{ft} 观察</span>'
+                status_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:13px;letter-spacing:0.1em;padding:2px 8px;border:1px solid var(--warn);color:var(--warn);">{fpc}/{ft} 观察</span>'
 
                 # 指标行
                 def radar_check(v: bool, label: str, val: str) -> str:
                     mark = "✓" if v else "×"
                     color = "var(--accent-2)" if v else "var(--ink-3)"
-                    return f'<span style="font-size:12px;color:{color};white-space:nowrap;"><b>{mark}</b> {label}: {val}</span>'
+                    return f'<span style="font-size:15px;color:{color};white-space:nowrap;"><b>{mark}</b> {label}: {val}</span>'
 
                 weakness_ok = cand.get("weakness_ok", True)
                 b_ok = cand["cond_breadth"]
@@ -1234,13 +1234,13 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
             {status_tag}
             {wl_tag}
           </div>
-          <div style="font-family:var(--font-mono);font-size:12px;color:var(--ink-2);line-height:1.8;margin-bottom:var(--u);">
+          <div style="font-family:var(--font-mono);font-size:15px;color:var(--ink-2);line-height:1.8;margin-bottom:var(--u);">
             {indicators_html}
           </div>
-          <div style="font-size:12px;color:var(--ink-3);line-height:1.6;font-family:var(--font-body);">
+          <div style="font-size:15px;color:var(--ink-3);line-height:1.6;font-family:var(--font-body);">
             近 5 日宽度：<b style="color:{imp_color};">{imp_str}</b>{dist_html}
           </div>
-          <div style="font-size:12px;color:var(--ink-2);line-height:1.6;font-family:var(--font-body);margin-top:2px;">
+          <div style="font-size:15px;color:var(--ink-2);line-height:1.6;font-family:var(--font-body);margin-top:2px;">
             {missing_display}{streak_info}
           </div>
         </div>""")
@@ -1264,11 +1264,11 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                     if not show_active.empty or not show_exited.empty:
                         html.append("""
         <details class="analysis-detail" style="margin-top:var(--u3);background:var(--bg-2);border-radius:4px;padding:var(--u2) var(--u3);">
-          <summary style="font-size:12px;color:var(--ink-3);cursor:pointer;font-weight:600;">
+          <summary style="font-size:15px;color:var(--ink-3);cursor:pointer;font-weight:600;">
             雷达观察追踪记录
           </summary>
           <div class="analysis-body" style="margin-top:var(--u2);">
-            <table style="width:100%;font-size:11px;border-collapse:collapse;color:var(--ink-2);">
+            <table style="width:100%;font-size:14px;border-collapse:collapse;color:var(--ink-2);">
               <thead><tr style="text-align:left;border-bottom:1px solid var(--rule);color:var(--ink-3);">
                 <th style="padding:4px 6px;"></th><th style="padding:4px 6px;">行业</th>
                 <th style="padding:4px 6px;">状态</th><th style="padding:4px 6px;">连续</th>
@@ -1291,7 +1291,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                 <td style="padding:3px 6px;">{b_disp}</td><td style="padding:3px 6px;">{r_missing}</td>
               </tr>""")
                         html.append("""            </tbody></table>
-            <div style="font-size:10px;color:var(--ink-3);margin-top:var(--u);font-style:italic;">
+            <div style="font-size:13px;color:var(--ink-3);margin-top:var(--u);font-style:italic;">
               删除线 = 观察周期已结束 · ● 上方卡片 = 当天活跃
             </div>
           </div>
@@ -1318,10 +1318,10 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
         <div style="padding:var(--u2) var(--u3);margin-bottom:var(--u2);border-left:2px solid var(--warn);background:var(--bg-2);">
           <div style="font-family:var(--font-display);font-weight:700;font-size:15px;color:var(--ink);margin-bottom:var(--u);">
             {grp_name}
-            <span style="font-weight:400;font-size:12px;color:var(--ink-3);"> · {count} 个细分行业进入雷达</span>
+            <span style="font-weight:400;font-size:15px;color:var(--ink-3);"> · {count} 个细分行业进入雷达</span>
           </div>
-          <div style="font-size:12px;color:var(--ink-2);">{members_str}</div>
-          <div style="font-size:11px;color:var(--ink-3);margin-top:var(--u);font-style:italic;">
+          <div style="font-size:15px;color:var(--ink-2);">{members_str}</div>
+          <div style="font-size:14px;color:var(--ink-3);margin-top:var(--u);font-style:italic;">
             同大类多细分同步改善 · 正式信号仍按单行业独立判断
           </div>
         </div>""")
@@ -1362,8 +1362,8 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
             html.append(f"""
         <div style="padding:var(--u2) var(--u3);margin-bottom:var(--u2);border-left:2px solid var(--accent-2);">
           <span style="font-family:var(--font-display);font-weight:700;font-size:14px;">{ind}</span>
-          <span style="font-size:12px;color:var(--ink-2);margin-left:var(--u2);">{ret5_str}{f' · {ret10_str}' if ret10_str else ''}</span>
-          {f'<span style="font-size:10px;color:var(--accent-2);margin-left:var(--u);">{triggered}</span>' if triggered else ''}
+          <span style="font-size:15px;color:var(--ink-2);margin-left:var(--u2);">{ret5_str}{f' · {ret10_str}' if ret10_str else ''}</span>
+          {f'<span style="font-size:13px;color:var(--accent-2);margin-left:var(--u);">{triggered}</span>' if triggered else ''}
         </div>""")
         html.append('  </section>')
 
