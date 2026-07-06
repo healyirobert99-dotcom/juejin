@@ -1341,8 +1341,22 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
             status = case.get("current_status", "")
             trigger = case.get("formal_triggered", "")
 
-            ret5_str = f"雷达后 5 日 {float(fwd5)*100:+.1f}%" if fwd5 not in ("", None) else "等待 5 日结果"
-            ret10_str = f"10 日 {float(fwd10)*100:+.1f}%" if fwd10 not in ("", None) else ""
+            # ── 安全格式化 nan/空 ──
+            def _sf(val):
+                if val in ("", None, "nan", "None"):
+                    return None
+                try:
+                    v = float(val)
+                    if v != v:  # NaN check
+                        return None
+                    return f"{v*100:+.1f}%"
+                except (ValueError, TypeError):
+                    return None
+
+            r5 = _sf(fwd5)
+            r10 = _sf(fwd10)
+            ret5_str = f"雷达后 5 日 {r5}" if r5 else "等待 5 日结果"
+            ret10_str = f"10 日 {r10}" if r10 else ""
             triggered = "已触发" if trigger == "1" else ""
 
             html.append(f"""
