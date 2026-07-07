@@ -92,8 +92,15 @@ def test_correlation_eval():
 
 def test_all_signals_have_etf():
     """最近 30 天所有信号都应能映射到 ETF（至少给个建议）"""
-    from v0_6.core import detect_stabilizing_b, load_raw_daily, compute_per_stock_indicators, compute_industry_daily_metrics, mark_repeat_priority
+    import pytest
+    from v0_6.core import detect_stabilizing_b, compute_per_stock_indicators, compute_industry_daily_metrics, mark_repeat_priority
+    from v0_6.core.signal_b import load_raw_daily
     import pandas as pd
+
+    # 确保 DB_PATH 指向真实项目库
+    from v0_6.core.config import DB_PATH
+    if not DB_PATH.exists():
+        pytest.skip("项目数据库不存在")
 
     sd = load_raw_daily("2010-01-01", "2026-06-24")
     sd_ind = compute_per_stock_indicators(sd)

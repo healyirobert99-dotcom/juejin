@@ -1,5 +1,5 @@
 """
-v0.6 桌面交易录入表单 · 后端 HTTP 服务（v6.1 升级）
+v0.6 桌面交易录入表单 · 后端 HTTP 服务（v1.1 升级）
 
 核心变化：
 - "行业" → "标的"，输入 6/9 位代码或文字，后端 match_target 自动识别
@@ -147,7 +147,7 @@ HTML_FORM = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>实盘交易录入 · v0.6</title>
+<title>实盘交易录入 · 掘金信号 v1.1</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=Noto+Serif+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -460,6 +460,7 @@ body {
 .toast.show { transform: translateX(0); }
 .toast.ok   { background: var(--ok); }
 .toast.err  { background: var(--accent); }
+.toast.warn { background: var(--warn); }
 .toast b { display: block; font-weight: 900; font-size: 16px; margin-bottom: 2px; }
 
 .colophon {
@@ -478,13 +479,13 @@ body {
 <body>
 <div class="sheet">
   <header class="masthead">
-    <span>Trade Entry · v6.1</span>
+    <span>Trade Entry · v1.1</span>
     <span>实盘交易录入</span>
     <span id="today-date">—</span>
   </header>
 
   <h1 class="dl-title">录入<span class="amp"> / </span>交易</h1>
-  <div class="dl-sub">v6.2 升级 · 标的代码自动匹配 · 进度/桶自动算 · 止损价基于你填的买入价</div>
+  <div class="dl-sub">v1.1 · 标的代码自动匹配 · 进度/桶自动算 · 止损价基于你填的买入价 · 来源行业记录</div>
 
   <div class="actions" id="actions">
     <div class="action active" data-action="BUY">首次建仓</div>
@@ -540,6 +541,37 @@ body {
       </div>
     </div>
 
+    <!-- § IIm: 来源信号（BUY/ADD 专用） -->
+    <div class="form-section" id="source-section">
+      <span class="sec-num">§ IIm</span>
+      <div class="sec-title">来源信号</div>
+      <div class="field">
+        <label>来源行业</label>
+        <input type="text" name="source_industry" id="f-source-industry" placeholder="如：证券 / 生物制药">
+        <span class="hint">不填可保存，但主线/退潮分析不可用</span>
+      </div>
+      <div class="field">
+        <label>信号日期</label>
+        <input type="date" name="source_signal_date" id="f-source-signal-date">
+        <span class="hint">触发信号的交易日</span>
+      </div>
+      <div class="field">
+        <label>信号类型</label>
+        <select name="source_signal_type" id="f-source-signal-type">
+          <option value="STABILIZING_B" selected>STABILIZING_B</option>
+        </select>
+        <span class="hint">暂只支持四因子正式信号</span>
+      </div>
+      <div class="field">
+        <label>优先级</label>
+        <select name="source_signal_priority" id="f-source-signal-priority">
+          <option value="FIRST">FIRST (试仓 8%)</option>
+          <option value="REPEAT">REPEAT (建仓 12%)</option>
+        </select>
+        <span class="hint">FIRST = 首次触发，REPEAT = 再度触发</span>
+      </div>
+    </div>
+
     <!-- 预览：系统自动算 -->
     <div class="form-section">
       <span class="sec-num">§ III</span>
@@ -574,8 +606,7 @@ body {
   </form>
 
   <footer class="colophon">
-    <span>v0.6.1 · 标的语义 + 金额为主</span>
-    <span>本地服务端口 8765</span>
+    <span>掘金信号 v1.1 · 本地服务端口 8765</span>
     <span>数据写入 SQLite live_trades</span>
   </footer>
 </div>
@@ -607,6 +638,10 @@ $$('.action').forEach(el => {
 function toggleSections() {
   const showParent = (currentAction === 'REDUCE' || currentAction === 'SELL');
   $('#parent-section').style.display = showParent ? '' : 'none';
+  // v1.1: 来源信号仅 BUY/ADD 可见
+  const showSource = (currentAction === 'BUY' || currentAction === 'ADD');
+  const srcSec = $('#source-section');
+  if (srcSec) srcSec.style.display = showSource ? '' : 'none';
 }
 
 // === 2. 默认日期 = 今天 ===
@@ -782,9 +817,16 @@ $('#trade-form').addEventListener('submit', async (e) => {
   form.forEach((v, k) => { if (v) payload[k] = v; });
 
   if (!targetInfo && currentAction !== 'REDUCE' && currentAction !== 'SELL') {
-    showToast('err', '❌ 标的未识别', '请先输入有效代码或名称');
+    showToast('err', '\u274c 标的未识别', '请先输入有效代码或名称');
     btn.disabled = false; btn.textContent = '提交录入';
     return;
+  }
+
+  // v1.1: BUY 来源行业检查
+  if (currentAction === 'BUY' && !payload.source_industry) {
+    showToast('warn', '\u26a0\ufe0f 未填写来源行业',
+      '持仓可以保存，但主线结构、相对强度和退潮监控将不可用。建议通过人工补录工具稍后填写。');
+    // 不阻断，只警告
   }
 
   try {
@@ -795,7 +837,13 @@ $('#trade-form').addEventListener('submit', async (e) => {
     });
     const data = await res.json();
     if (data.ok) {
-      showToast('ok', '✅ 录入成功', `trade_id = ${data.trade_id} · ${data.target_name || data.target} ${payload.action}`);
+      let msg = `trade_id = ${data.trade_id} \u00b7 ${data.target_name || data.target} ${payload.action}`;
+      if (data.warning) {
+        msg += ' \u00b7 ' + data.warning;
+        showToast('warn', '\u2705 录入成功(\u6709警告)', msg);
+      } else {
+        showToast('ok', '\u2705 录入成功', msg);
+      }
       e.target.reset();
       $('#f-date').value = today;
       $('#target-card').classList.remove('show');
@@ -805,10 +853,10 @@ $('#trade-form').addEventListener('submit', async (e) => {
         loadOpenPositions();
       }
     } else {
-      showToast('err', '❌ 录入失败', data.error || '未知错误');
+      showToast('err', '\u274c 录入失败', data.error || '未知错误');
     }
   } catch (err) {
-    showToast('err', '❌ 网络错误', err.message);
+    showToast('err', '\u274c 网络错误', err.message);
   } finally {
     btn.disabled = false;
     btn.textContent = '提交录入';
@@ -920,6 +968,23 @@ class TradeFormHandler(BaseHTTPRequestHandler):
             init_schema()
 
             if action in ("BUY", "ADD"):
+                # ── v1.1: 来源行业（仅 BUY 需要，ADD 自动继承） ──
+                source_industry = data.get("source_industry", "").strip() or None
+                source_signal_date = data.get("source_signal_date", "").strip() or None
+                source_signal_priority = data.get("source_signal_priority", "").strip() or None
+                source_signal_type = data.get("source_signal_type", "").strip() or None
+
+                # ADD 时自动继承当前持仓的来源行业
+                if action == "ADD" and not source_industry:
+                    con_chk = sqlite3.connect(str(DB_PATH))
+                    si_row = con_chk.execute(
+                        "SELECT source_industry FROM live_trades WHERE target=? AND action='BUY' AND closed=0 ORDER BY trade_id ASC LIMIT 1",
+                        (target,),
+                    ).fetchone()
+                    con_chk.close()
+                    if si_row and si_row[0]:
+                        source_industry = si_row[0]
+
                 # 1) 拉取进度/桶（基于现价，仅作参考）
                 rules = auto_calc_rules(target, target_type, date) if target_type != "INDUSTRY" else {}
                 progress = rules.get("progress")
@@ -958,7 +1023,15 @@ class TradeFormHandler(BaseHTTPRequestHandler):
                     stop_price=stop_price,
                     take_profit_price=tp_price,
                     notes=notes,
+                    source_industry=source_industry,
+                    source_signal_date=source_signal_date,
+                    source_signal_priority=source_signal_priority,
+                    source_signal_type=source_signal_type,
                 )
+                # ── v1.1 警告 ──
+                warn = ""
+                if action == "BUY" and not source_industry:
+                    warn = "未填写来源行业。持仓可以保存，但主线结构、相对强度和退潮监控将不可用。建议通过人工补录工具稍后填写。"
             elif action == "REDUCE":
                 if not parent_trade_id:
                     raise ValueError("REDUCE 必须提供 parent_trade_id")
@@ -1048,17 +1121,20 @@ class TradeFormHandler(BaseHTTPRequestHandler):
             else:
                 raise ValueError(f"未知 action: {action}")
 
+            resp = {"ok": True, "trade_id": trade_id, "target_name": target_name}
+            if action in ("BUY",) and 'warn' in dir() and warn:
+                resp["warning"] = warn
             self._send(
                 200,
                 "application/json",
-                json.dumps({"ok": True, "trade_id": trade_id, "target_name": target_name}, ensure_ascii=False).encode("utf-8"),
+                json.dumps(resp, ensure_ascii=False).encode("utf-8"),
             )
         except Exception as e:
             self._send(400, "application/json", json.dumps({"ok": False, "error": str(e)}).encode("utf-8"))
 
 
 def main():
-    print(f"\n=== v0.6.1 实盘录入服务 | 端口 {PORT} ===\n")
+    print(f"\n=== 掘金信号 v1.1 实盘录入服务 | 端口 {PORT} ===\n")
     print(f"  📝 浏览器：http://localhost:{PORT}/")
     print(f"  📊 日报：file:///D:/zhuxian-catch-v0_6/reports/daily_v1/archive.html")
     print(f"  🛑 停止：Ctrl+C\n")

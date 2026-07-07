@@ -1,5 +1,5 @@
 """
-v0.6 日报 V1.0 HTML 渲染器（最终版）
+v0.6 日报 V1.1 HTML 渲染器
 
 设计原则：
 - 5 秒看完：4 张摘要卡
@@ -55,11 +55,12 @@ HTML_STYLE = """
   /* === 编辑风档案色板（OKLCH，避开纯灰） === */
   --paper:        oklch(97% 0.012 80);     /* 奶白，带极轻暖 */
   --paper-2:      oklch(94% 0.014 78);     /* 略深底色 */
-  --ink:          oklch(22% 0.018 50);     /* 暖墨主文字 */
-  --ink-2:        oklch(42% 0.020 50);     /* 次级文字 */
-  --ink-3:        oklch(60% 0.018 55);     /* 注释 */
-  --rule:         oklch(85% 0.015 75);     /* 暖灰分隔线 */
-  --rule-2:       oklch(90% 0.013 78);
+  --ink:          oklch(18% 0.018 50);     /* 深墨主文字（加深提高对比度） */
+  --ink-2:        oklch(38% 0.022 50);     /* 次级文字（加深） */
+  --ink-3:        oklch(52% 0.020 55);     /* 注释（加深） */
+  --rule:         oklch(83% 0.015 75);     /* 暖灰分隔线 */
+  --rule-2:       oklch(88% 0.013 78);
+  --card-bg:      oklch(98% 0.01 80);      /* 卡片背景 */
 
   /* 勃艮第 + 暗金（金融专业色，避开 AI 紫蓝渐变） */
   --accent:       oklch(45% 0.16 22);      /* 勃艮第红——告警、止损 */
@@ -86,15 +87,15 @@ body {
   font-family: var(--font-body);
   background: var(--paper);
   color: var(--ink);
-  line-height: 1.6;
-  font-size: 16px;
+  line-height: 1.75;
+  font-size: 17px;
   font-feature-settings: "kern", "liga";
   -webkit-font-smoothing: antialiased;
 }
 
 /* === 页面骨架 === */
 .sheet {
-  max-width: 780px;
+  max-width: 840px;
   margin: 0 auto;
   padding: var(--u6) var(--u4) var(--u8);
   background: var(--paper);
@@ -109,7 +110,7 @@ body {
   bottom: var(--u6);
   width: 1px;
   background: var(--accent);
-  opacity: 0.35;
+  opacity: 0.25;
 }
 @media (max-width: 720px) {
   .sheet { padding: var(--u4) var(--u3) var(--u6); }
@@ -127,7 +128,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-family: var(--font-display);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--ink-2);
 }
@@ -167,7 +168,7 @@ body {
 @media (max-width: 600px) { .dl-title { text-align: left; } }
 .dl-subtitle {
   margin-top: var(--u2);
-  font-size: 13px;
+  font-size: 16px;
   color: var(--ink-2);
   font-style: italic;
   line-height: 1.5;
@@ -206,7 +207,7 @@ body {
 .metric.up   .metric-num { color: var(--accent-2); }
 .metric-key {
   margin-top: var(--u2);
-  font-size: 10px;
+  font-size: 16px;
   text-transform: uppercase;
   letter-spacing: 0.2em;
   color: var(--ink-3);
@@ -215,28 +216,29 @@ body {
 }
 .metric-note {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--ink-2);
   font-style: italic;
 }
 
 /* === 章节（编辑风：编号 + 标题） === */
 .section { margin-bottom: var(--u8); }
+.section > * + * { margin-top: var(--u2); }
 .sec-head {
   display: flex;
   align-items: baseline;
   gap: var(--u2);
-  margin-bottom: var(--u3);
+  margin-bottom: var(--u4);
   padding-bottom: var(--u2);
-  border-bottom: 1px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
 }
 .sec-num {
   font-family: var(--font-display);
   font-weight: 400;
   font-style: italic;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--accent);
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 .sec-title {
   font-family: var(--font-display);
@@ -249,7 +251,7 @@ body {
 .sec-tag {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 16px;
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.15em;
@@ -273,7 +275,7 @@ body {
 .dispatch-num {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 13px;
+  font-size: 16px;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
@@ -286,7 +288,7 @@ body {
 }
 .dispatch-meta {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 15px;
   color: var(--ink-2);
   text-align: right;
   line-height: 1.7;
@@ -297,7 +299,7 @@ body {
   font-family: var(--font-display);
   font-weight: 700;
   font-style: italic;
-  font-size: 10px;
+  font-size: 16px;
   text-transform: uppercase;
   letter-spacing: 0.15em;
   padding: 2px 6px;
@@ -314,7 +316,7 @@ body {
   gap: 6px;
   padding: 4px 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 15px;
   border-top: 1px dashed var(--rule);
   margin-top: 4px;
   flex-wrap: wrap;
@@ -327,7 +329,7 @@ body {
   background: var(--ink);
   color: var(--ink-on-dark);
   padding: 2px 6px;
-  font-size: 10px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.05em;
 }
@@ -343,7 +345,7 @@ body {
   font-weight: 700;
   background: var(--accent-bg);
   padding: 1px 5px;
-  font-size: 11px;
+  font-size: 14px;
 }
 .etf-purity {
   display: inline-block;
@@ -359,7 +361,7 @@ body {
 .etf-purity.bad { background: var(--accent); }
 .etf-conf {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 16px;
   color: var(--ink-3);
   font-style: italic;
 }
@@ -374,22 +376,21 @@ body {
   font-size: 14px;
 }
 
-/* === 持仓卡（报纸分栏） === */
-.ledgers { display: flex; flex-direction: column; gap: 0; }
+/* === 持仓卡（单栏平铺） === */
+.ledgers { display: flex; flex-direction: column; gap: var(--u3); }
 .ledger {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--u3);
-  padding: var(--u3) 0;
-  border-top: 1px solid var(--rule);
+  display: block;
+  padding: var(--u3);
+  background: var(--card-bg);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
   position: relative;
 }
-.ledger:last-child { border-bottom: 1px solid var(--rule); }
 .ledger::before {
   content: "";
   position: absolute;
   top: var(--u3);
-  left: -8px;
+  left: -12px;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -401,71 +402,68 @@ body {
 .ledger.ADJUST::before    { background: var(--ink-3); }
 .ledger.HOLD::before      { background: var(--accent-2); }
 
-@media (max-width: 600px) { .ledger { grid-template-columns: 1fr; gap: var(--u2); } }
-
-.led-left .led-name {
+.led-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--u2);
+  margin-bottom: var(--u);
+}
+.led-top .led-name {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 24px;
+  font-size: 22px;
   letter-spacing: -0.01em;
   color: var(--ink);
-  margin-bottom: 2px;
 }
-.led-left .led-action-tag {
+.led-top .led-pct {
+  font-family: var(--font-mono);
+  font-weight: 900;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.led-pct.positive { color: var(--accent-2); }
+.led-pct.negative { color: var(--accent); }
+
+.led-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--u2);
+  flex-wrap: wrap;
+  margin-bottom: var(--u);
+  font-size: 15px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.led-action-tag {
   display: inline-block;
   font-family: var(--font-display);
   font-weight: 700;
   font-style: italic;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-  padding: 2px 8px;
-  margin-bottom: var(--u);
-  background: var(--ink-3);
-  color: var(--ink-on-dark);
-}
-.led-left .led-action-tag.CLEAR    { background: var(--accent); }
-.led-left .led-action-tag.REDUCE_1_3{ background: var(--warn); }
-.led-left .led-action-tag.WATCH    { background: var(--warn); }
-.led-left .led-action-tag.ADJUST   { background: var(--ink); }
-.led-left .led-action-tag.HOLD     { background: var(--accent-2); }
-
-.led-left .led-bucket {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--ink-2);
+  font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
+  padding: 2px 10px;
+  border-radius: 3px;
+  color: var(--ink-on-dark);
+  background: var(--ink-3);
 }
-.led-left .led-bucket b { color: var(--ink); font-weight: 700; }
-
-.led-right {
-  text-align: right;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--ink-2);
-  line-height: 1.6;
-}
-.led-pct {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: 30px;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  margin-bottom: 4px;
-}
-.led-pct.positive { color: var(--accent-2); }
-.led-pct.negative { color: var(--accent); }
-.led-right .led-stops b { color: var(--ink); font-weight: 700; }
+.led-action-tag.CLEAR    { background: var(--accent); }
+.led-action-tag.REDUCE_1_3{ background: var(--warn); }
+.led-action-tag.WATCH    { background: var(--warn); }
+.led-action-tag.ADJUST   { background: var(--ink); }
+.led-action-tag.HOLD     { background: var(--accent-2); }
+.led-inline { font-size: 15px; color: var(--ink-2); }
 
 .led-advice {
-  grid-column: 1 / -1;
-  margin-top: var(--u2);
-  padding: var(--u2) var(--u3);
-  font-size: 13px;
+  margin-top: var(--u);
+  padding: var(--u) var(--u2);
+  font-size: 15px;
+  line-height: 1.7;
   font-style: italic;
-  border-left: 2px solid var(--rule);
+  border-left: 3px solid var(--rule);
+  border-radius: 4px;
   color: var(--ink-2);
   background: var(--neutral-bg);
 }
@@ -495,7 +493,7 @@ body {
 .bucket-num {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--accent);
   letter-spacing: 0.1em;
 }
@@ -508,7 +506,7 @@ body {
 }
 .bucket-trigger {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 16px;
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -552,7 +550,7 @@ body {
   justify-content: space-between;
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--ink-3);
   letter-spacing: 0.05em;
 }
@@ -604,7 +602,7 @@ body {
   text-decoration: none;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 15px;
   text-transform: uppercase;
   letter-spacing: 0.15em;
   transition: background 120ms ease;
@@ -629,7 +627,7 @@ body {
   font-family: var(--font-display);
   font-weight: 500;
   font-style: italic;
-  font-size: 12px;
+  font-size: 15px;
   letter-spacing: 0.05em;
   transition: all 120ms ease;
 }
@@ -637,12 +635,57 @@ body {
 
 /* 数据日期提示（当生成日期 != 数据日期时） */
 .data-note {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--ink-3);
   font-family: var(--font-mono);
   font-style: italic;
   margin-top: 4px;
   letter-spacing: 0.02em;
+}
+/* 折叠分析 */
+.analysis-detail { margin-top: var(--u2); border-top: 1px solid var(--rule); padding-top: var(--u2); }
+.analysis-detail summary { cursor: pointer; font-size: 15px; color: var(--ink-2); font-family: var(--font-display); user-select: none; padding: var(--u) 0; font-weight: 600; }
+.analysis-detail summary::-webkit-details-marker { display: none; }
+.analysis-detail summary::before { content: '▸ '; }
+.analysis-detail[open] summary::before { content: '▾ '; }
+.analysis-body { padding: var(--u2) 0 var(--u2) var(--u2); border-left: 2px solid var(--rule-2); margin-left: 4px; }
+.analysis-body p { margin: var(--u) 0; font-size: 15px; line-height: 1.75; color: var(--ink-2); }
+.mini-metrics { width: 100%; border-collapse: collapse; margin: var(--u) 0; }
+.mini-metrics td { padding: 6px 12px; font-size: 15px; line-height: 1.7; border-bottom: 1px solid var(--rule); }
+.mini-metrics td:first-child { color: var(--ink-3); font-size: 14px; min-width: 90px; }
+.mini-metrics td:last-child { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.analysis-body ul { margin: var(--u) 0; padding-left: var(--u3); }
+.analysis-body li { font-size: 15px; line-height: 1.75; color: var(--ink-2); margin: 3px 0; }
+/* 平铺分析卡片 */
+.analysis-card {
+  display: flex;
+  gap: var(--u2);
+  padding: var(--u) 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 15px;
+  line-height: 1.7;
+}
+.analysis-card:last-child { border-bottom: none; }
+.ac-label {
+  min-width: 80px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.ac-value {
+  color: var(--ink);
+  flex: 1;
+}
+.analysis-body { font-size: 16px; line-height: 1.5; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--rule); }
+.analysis-body p { margin: 2px 0; }
+.analysis-body ul { margin: 2px 0; padding-left: 16px; }
+.analysis-body li { margin: 1px 0; }
+.mini-metrics { width: 100%; border-collapse: collapse; font-size: 16px; }
+.mini-metrics td { padding: 1px 4px; border-bottom: 1px solid #eee; }
+.mini-metrics td:first-child { color: var(--ink-3); width: 40%; }
+@media print {
+  .analysis-detail { border: none; }
+  .analysis-detail summary { display: none !important; }
+  .analysis-body { display: block !important; border-left: none; }
 }
 </style>
 """
@@ -725,7 +768,7 @@ def render_position_card(r: dict) -> str:
   </div>
   <div class="led-right">
     <div class="led-stops">类型 {target_type} · 入场 {entry_date}</div>
-    <div class="led-stops" style="font-size:11px;color:var(--accent);">{err_msg}</div>
+    <div class="led-stops" style="font-size:14px;color:var(--accent);">{err_msg}</div>
   </div>
   <div class="led-advice" style="background:transparent;color:var(--ink-3);">暂不计算盈亏 · 请人工处理</div>
 </article>
@@ -741,17 +784,33 @@ def render_position_card(r: dict) -> str:
     current_bucket = r.get("current_bucket", bucket)
     stop_price = r.get("stop_price", 0)
     tp_price = r.get("take_profit_price", 0)
+    entry_price = r.get("entry_price", 0)
     current_price = r.get("current_price", 0)
     price_date = r.get("today", "")
 
-    # 操作建议文案
+    # 操作建议文案（含退潮）
+    retreat_stage = r.get("retreat_stage")
+    retreat_score = r.get("retreat_score", 0)
+    source_ind = r.get("source_industry")
+    retreat_action = r.get("retreat_action", "NORMAL")
+    action_reason = r.get("action_reason", "")
+
     if action == "CLEAR":
         advice = f"触发 {stop_pct:.0f}% 止损线 — 立即清仓离场"
+    elif action == "RETREAT_REDUCE_1_3":
+        advice = "行业确认退潮 — 建议下一交易日减仓 1/3"
+        if action_reason == "TAKE_PROFIT_AND_RETREAT":
+            advice = "触发止盈 + 行业确认退潮 — 减仓 1/3（一次性）"
     elif action == "REDUCE_1_3":
-        advice = f"触发 {tp_pct:.0f}% 止盈线 — 减仓 1/3 锁定利润"
+        if action_reason == "TAKE_PROFIT_AND_RETREAT":
+            advice = "触发止盈 + 行业确认退潮 — 减仓 1/3（一次性）"
+        else:
+            advice = f"触发 {tp_pct:.0f}% 止盈线 — 减仓 1/3 锁定利润"
+    elif action == "RETREAT_WATCH":
+        advice = "行业出现退潮预警 — 暂不减仓，继续观察"
     elif action == "WATCH":
         if distance_to_stop < 5 and distance_to_stop > 0:
-            advice = f"距止损线仅 {distance_to_stop:.0f}% — 保持密切关注"
+            advice = f"距止损线仅 {distance_to_stop:.0f}% — 密切关注"
         elif distance_to_tp < 5 and distance_to_tp > 0:
             advice = f"距止盈线仅 {distance_to_tp:.0f}% — 准备兑现"
         else:
@@ -763,35 +822,134 @@ def render_position_card(r: dict) -> str:
 
     bucket_indicator = f" → {current_bucket}" if bucket != current_bucket else ""
 
+    # 行业状态区（紧凑）
+    ind_status_html = ""
+    if source_ind:
+        if retreat_action == "NORMAL":
+            ind_status = "正常"
+        elif retreat_action == "CONFIRMED_RETREAT":
+            ind_status = "确认退潮"
+        else:
+            ind_status = "退潮预警"
+        triggers = []
+        if retreat_score > 60:
+            triggers.append(f"评分 {retreat_score:.0f}")
+        if retreat_stage:
+            triggers.append(retreat_stage[:5])
+        trig_str = " · ".join(triggers[:2]) if triggers else ""
+        ind_status_html = f"""
+    <div class="led-stops" style="font-size:13px;color:var(--ink-3);margin-top:2px;">
+      来源 <b>{source_ind}</b> · 行业 <b>{ind_status}</b>{' · '+trig_str if trig_str else ''}
+    </div>"""
+    else:
+        ind_status_html = """
+    <div class="led-stops" style="font-size:13px;color:var(--accent);margin-top:2px;">
+      来源行业：待补录
+    </div>
+    <div style="font-size:9px;color:var(--ink-3);margin-top:1px;">
+      一次性补录后，后续日报自动分析。
+    </div>"""
+
     return f"""
 <article class="ledger {action}">
-  <div class="led-left">
-    <div class="led-name">{r.get('name') or r.get('target_name') or r.get('target', '?')}</div>
-    <span class="led-action-tag {action}">{action}</span>
-    <div class="led-bucket"><b>{bucket}</b>{bucket_indicator}</div>
-  </div>
-  <div class="led-right">
+  <div class="led-top">
+    <div class="led-name">{source_ind + ' · ' if source_ind else ''}{r.get('name') or r.get('target_name') or r.get('target', '?')}</div>
     <div class="led-pct {ret_class}">{fmt_pct(ret)}</div>
-    <div class="led-stops">入场 {r['entry_date']}</div>
-    <div class="led-stops">现价 {fmt_price(current_price)}</div>
-    <div class="led-stops" style="font-size:10px;color:var(--ink-3);">价格截至 {price_date}</div>
-    <div class="led-stops">止损 <b>{fmt_price(stop_price)}</b> · 止盈 <b>{fmt_price(tp_price)}</b></div>
+  </div>
+  <div class="led-meta">
+    <span class="led-action-tag {action}">{action}</span>
+    <span class="led-inline">成本 {fmt_price(entry_price)} · 现价 {fmt_price(current_price)} · 止损 {fmt_price(stop_price)}</span>{ind_status_html}
   </div>
   <div class="led-advice {action}">{advice}</div>
+{_render_analysis_details(r, source_ind)}
 </article>
 """
+
+
+def _render_analysis_details(r: dict, source_ind: str | None) -> str:
+    """持仓分析详情——直接平铺展示，不折叠"""
+    if not source_ind:
+        return ""
+
+    parts = []
+
+    # ── 主线结构 ──
+    ms = r.get("mainline_structure") or {}
+    if ms:
+        parts.append(f"""  <div class="analysis-card">
+    <div class="ac-label">主线结构</div>
+    <div class="ac-value"><b>{ms.get('structure_label', '?')}</b> — {ms.get('summary', '—')}</div>
+  </div>""")
+
+    # ── 退潮 ──
+    ret_score = r.get("retreat_score", 0)
+    ret_action = r.get("retreat_action", "NORMAL")
+    if ret_action == "CONFIRMED_RETREAT":
+        retreat_line = f"<b style='color:var(--accent);'>确认退潮（{ret_score:.0f}分）— 建议减仓 1/3</b>"
+    elif ret_action != "NORMAL":
+        retreat_line = f"退潮预警（{ret_score:.0f}分）— 继续观察"
+    else:
+        retreat_line = f"正常（{ret_score:.0f}分）"
+
+    parts.append(f"""  <div class="analysis-card">
+    <div class="ac-label">退潮信号</div>
+    <div class="ac-value">{retreat_line}</div>
+  </div>""")
+
+    # ── 风控 ──
+    stop = r.get("stop_price", 0)
+    entry = r.get("entry_price", 0)
+    current = r.get("current_price", 0)
+    parts.append(f"""  <div class="analysis-card">
+    <div class="ac-label">风控</div>
+    <div class="ac-value">成本 ¥{entry:.3f} · 现价 ¥{current:.3f} · 止盈 ¥{r.get('take_profit_price',0):.3f} · 止损 ¥{stop:.3f}</div>
+  </div>""")
+
+    return "\n".join(parts)
+
+def _metrics_html(d: dict, prefix: str = "") -> str:
+    if not d: return ""
+    rows = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in list(d.items())[:7])
+    return f"<table class='mini-metrics'>{prefix}{rows}</table>"
+
+
+def _evidence_html(title: str, *items: str) -> str:
+    """传入 (title, item1, item2, ...) 或 (title, [item1, item2])
+    
+    如果第二个参数是 list，取 list 中的内容。
+    """
+    if not items:
+        return ""
+    # 兼容旧调用: _evidence_html("标题", ["a","b"])
+    if len(items) == 1 and isinstance(items[0], list):
+        flat = items[0]
+    else:
+        flat = [i for i in items if i and str(i).strip()]
+    if not flat:
+        return ""
+    lis = "".join(f"<li>{i}</li>" for i in flat[:4])
+    return f"<p style=\"margin-top:var(--u);\"><b>{title}</b></p><ul>{lis}</ul>"
+
+
+def _e(condition: bool, label: str) -> str:
+    """辅助：条件成立时返回描述文本，否则返回空"""
+    return label if condition else ""
 
 
 # ============== 主渲染 ==============
 
 def render_html(requested_date: str, signal_data_date: str, today_signals: pd.DataFrame,
-                monitoring: list, radar_candidates: list | None = None) -> str:
+                monitoring: list, radar_candidates: list | None = None,
+                group_linkage: list | None = None, recent_cases: pd.DataFrame | None = None) -> str:
     sd_dt = pd.to_datetime(signal_data_date)
     today_only = today_signals[today_signals["signal_date"] == sd_dt]
     n_today = len(today_only)
     n_repeat = len(today_only[today_only["priority"] == "REPEAT"])
     n_alerts = sum(1 for r in monitoring if r.get("priority") in ("RED", "YELLOW"))
     n_red = sum(1 for r in monitoring if r.get("priority") == "RED")
+    n_red_clear = sum(1 for r in monitoring if r.get("action") == "CLEAR")
+    n_red_retreat = sum(1 for r in monitoring if r.get("action") == "RETREAT_REDUCE_1_3")
+    n_red_tp = sum(1 for r in monitoring if r.get("action") == "REDUCE_1_3" and r.get("action_reason") != "TAKE_PROFIT_AND_RETREAT")
     n_positions = len(monitoring)
 
     # 解析日期为刊头需要的形式
@@ -811,7 +969,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>掘金日报 · {requested_date}{empty_mark} | Zhuxian Catch v0.6</title>
+<title>掘金日报 · {requested_date}{empty_mark} | Zhuxian Catch v1.1</title>
 {HTML_STYLE}
 </head>
 <body>
@@ -843,8 +1001,8 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
   <div class="alert-banner">
     <div class="alert-icon">!</div>
     <div class="alert-text">
-      <b>紧急离场信号</b>
-      {n_red} 个持仓已突破止损线，请在今日收盘前完成清仓操作
+      <b>需立即操作</b>
+      止损清仓 <b>{n_red_clear}</b> · 退潮减仓 <b>{n_red_retreat}</b> · 止盈减仓 <b>{n_red_tp}</b>
     </div>
   </div>
 """)
@@ -852,8 +1010,15 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
     # ===== 1. 摘要数字墙 =====
     html.append('  <div class="metrics">')
     html.append(f'    <div class="metric"><div class="metric-num">{n_today}</div><div class="metric-key">今日信号</div><div class="metric-note">首次建仓机会</div></div>')
-    html.append(f'    <div class="metric alert"><div class="metric-num">{n_red}</div><div class="metric-key">需立即操作</div><div class="metric-note">已破止损</div></div>')
-    html.append(f'    <div class="metric"><div class="metric-num">{n_positions}</div><div class="metric-key">当前持仓</div><div class="metric-note">4 桶规则监控中</div></div>')
+    if n_red > 0:
+        alerts_text = []
+        if n_red_clear > 0: alerts_text.append(f'清除 {n_red_clear}')
+        if n_red_retreat > 0: alerts_text.append(f'退潮 {n_red_retreat}')
+        if n_red_tp > 0: alerts_text.append(f'止盈 {n_red_tp}')
+        html.append(f'    <div class="metric alert"><div class="metric-num">{n_red}</div><div class="metric-key">需立即操作</div><div class="metric-note">{" ".join(alerts_text) or "已破止损"}</div></div>')
+        html.append(f'    <div class="metric"><div class="metric-num">{n_positions}</div><div class="metric-key">当前持仓</div><div class="metric-note">4 桶规则监控中</div></div>')
+    else:
+        html.append(f'    <div class="metric"><div class="metric-num">{n_positions}</div><div class="metric-key">当前持仓</div><div class="metric-note">4 桶规则监控中</div></div>')
     html.append(f'    <div class="metric up"><div class="metric-num">{n_repeat}</div><div class="metric-key">重复触发</div><div class="metric-note">优先建仓</div></div>')
     html.append('  </div>')
 
@@ -965,12 +1130,12 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
         html.append('      <span class="sec-title" style="font-size:22px;">信号雷达 · 候选观察</span>')
         html.append('      <span class="sec-tag">仅供观察</span>')
         html.append('    </div>')
-        html.append('    <p style="font-size:11px;color:var(--ink-3);font-style:italic;margin-bottom:var(--u3);font-family:var(--font-display);letter-spacing:0.05em;">')
+        html.append('    <p style="font-size:14px;color:var(--ink-3);font-style:italic;margin-bottom:var(--u3);font-family:var(--font-display);letter-spacing:0.05em;">')
         html.append('      四因子满足3项 · 尚未形成正式信号 · 不构成交易建议')
         html.append('    </p>')
 
         if not radar_candidates:
-            html.append('    <div class="empty">暂无进入临界区的行业</div>')
+            html.append('    <div class="empty">今日暂无新进入临界区的行业</div>')
         else:
             html.append('    <div style="display:flex;flex-direction:column;gap:var(--u3);">')
             for cand in radar_candidates:
@@ -984,14 +1149,31 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                 imp = cand["breadth_improvement_5d"]
                 missing = cand["missing"]
 
+                # ── v1.1 雷达连续跟踪 ──
+                watch_level = cand.get("watch_level", "WATCH")
+                streak = cand.get("consecutive_radar_days", 1)
+                dist_val = cand.get("distance_to_threshold")
+                dist_unit = cand.get("distance_unit", "")
+                dist_change = cand.get("distance_change")
+                is_improving = cand.get("is_improving", False)
+
+                if watch_level == "STRONG_WATCH":
+                    wl_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:13px;letter-spacing:0.1em;padding:2px 8px;background:var(--warn);color:var(--bg);">强观察</span>'
+                else:
+                    wl_tag = ""
+
+                streak_info = f"连续 {streak} 日" if streak >= 2 else ""
+                if streak_info and wl_tag:
+                    streak_info = f" · {streak_info}"
+
                 # 状态标签
-                status_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:10px;letter-spacing:0.1em;padding:2px 8px;border:1px solid var(--warn);color:var(--warn);">{fpc}/{ft} 观察</span>'
+                status_tag = f'<span style="font-family:var(--font-display);font-weight:700;font-size:13px;letter-spacing:0.1em;padding:2px 8px;border:1px solid var(--warn);color:var(--warn);">{fpc}/{ft} 观察</span>'
 
                 # 指标行
                 def radar_check(v: bool, label: str, val: str) -> str:
                     mark = "✓" if v else "×"
                     color = "var(--accent-2)" if v else "var(--ink-3)"
-                    return f'<span style="font-size:12px;color:{color};white-space:nowrap;"><b>{mark}</b> {label}: {val}</span>'
+                    return f'<span style="font-size:15px;color:{color};white-space:nowrap;"><b>{mark}</b> {label}: {val}</span>'
 
                 weakness_ok = cand.get("weakness_ok", True)
                 b_ok = cand["cond_breadth"]
@@ -1020,23 +1202,150 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                 else:
                     missing_display = ""
 
+                # ── v1.1 距离阈值信息 ──
+                dist_html = ""
+                if dist_val is not None and dist_val > 0:
+                    change_symbol = "↓改善" if is_improving else ("↑恶化" if dist_change is not None and dist_change < 0 else "")
+                    dist_html = f' · 距阈值 <b>{dist_val}{dist_unit}</b> {change_symbol}'
+
                 html.append(f"""
         <div style="padding:var(--u3) 0 var(--u3) var(--u3);border-bottom:1px dashed var(--rule);border-left:2px solid var(--rule-2);">
           <div style="display:flex;align-items:baseline;gap:var(--u2);margin-bottom:var(--u);flex-wrap:wrap;">
             <span style="font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--ink);letter-spacing:-0.01em;">{ind}</span>
             {status_tag}
+            {wl_tag}
           </div>
-          <div style="font-family:var(--font-mono);font-size:12px;color:var(--ink-2);line-height:1.8;margin-bottom:var(--u);">
+          <div style="font-family:var(--font-mono);font-size:15px;color:var(--ink-2);line-height:1.8;margin-bottom:var(--u);">
             {indicators_html}
           </div>
-          <div style="font-size:12px;color:var(--ink-3);line-height:1.6;font-family:var(--font-body);">
-            近 5 日宽度：<b style="color:{imp_color};">{imp_str}</b>
+          <div style="font-size:15px;color:var(--ink-3);line-height:1.6;font-family:var(--font-body);">
+            近 5 日宽度：<b style="color:{imp_color};">{imp_str}</b>{dist_html}
           </div>
-          <div style="font-size:12px;color:var(--ink-2);line-height:1.6;font-family:var(--font-body);margin-top:2px;">
-            {missing_display}
+          <div style="font-size:15px;color:var(--ink-2);line-height:1.6;font-family:var(--font-body);margin-top:2px;">
+            {missing_display}{streak_info}
           </div>
         </div>""")
             html.append('    </div>')
+
+        # ── v1.1: 此前观察历史（紧凑折叠） ──
+        try:
+            from v0_6.core.observation_tracker import _read_radar_state
+            prev_state = _read_radar_state()
+            today_inds = {c["industry"] for c in (radar_candidates or [])}
+            if not prev_state.empty:
+                # 区分：当天活跃的、历史已退出但仍在追踪期的
+                active_rows = prev_state[prev_state.get("status", "") != "EXITED"] if "status" in prev_state.columns else prev_state
+                exited_rows = prev_state[prev_state.get("status", "") == "EXITED"] if "status" in prev_state.columns else pd.DataFrame()
+
+                if not active_rows.empty and len(active_rows) > 0:
+                    # 只显示不在当天雷达中的活跃行（已在主区显示的不重复）
+                    show_active = active_rows[~active_rows["industry"].isin(today_inds)]
+                    show_exited = exited_rows
+
+                    if not show_active.empty or not show_exited.empty:
+                        html.append("""
+        <details class="analysis-detail" style="margin-top:var(--u3);background:var(--bg-2);border-radius:4px;padding:var(--u2) var(--u3);">
+          <summary style="font-size:15px;color:var(--ink-3);cursor:pointer;font-weight:600;">
+            雷达观察追踪记录
+          </summary>
+          <div class="analysis-body" style="margin-top:var(--u2);">
+            <table style="width:100%;font-size:14px;border-collapse:collapse;color:var(--ink-2);">
+              <thead><tr style="text-align:left;border-bottom:1px solid var(--rule);color:var(--ink-3);">
+                <th style="padding:4px 6px;"></th><th style="padding:4px 6px;">行业</th>
+                <th style="padding:4px 6px;">状态</th><th style="padding:4px 6px;">连续</th>
+                <th style="padding:4px 6px;">宽度</th><th style="padding:4px 6px;">缺失条件</th>
+              </tr></thead><tbody>""")
+                        all_rows = pd.concat([show_active, show_exited]) if not show_exited.empty else show_active
+                        for _, row in all_rows.iterrows():
+                            r_ind = row.get("industry", "?")
+                            r_streak = row.get("consecutive_radar_days", "1")
+                            r_missing = row.get("last_missing_text", "—")
+                            r_breadth = row.get("last_breadth", "")
+                            b_disp = f"{float(r_breadth)*100:.1f}%" if r_breadth and r_breadth not in ("", "nan") else "—"
+                            row_status = row.get("status", "")
+                            is_exited = row_status == "EXITED"
+                            r_wl = "已退出" if is_exited else ("强观察" if row.get("last_watch_level","") == "STRONG_WATCH" else "观察中")
+                            color = "var(--ink-3)" if is_exited else "var(--ink-2)"
+                            html.append(f"""              <tr style="color:{color};border-bottom:1px solid var(--rule);">
+                <td style="padding:3px 6px;">{'·' if is_exited else ''}</td><td style="padding:3px 6px;font-weight:600;text-decoration:{'line-through' if is_exited else 'none'};">{r_ind}</td>
+                <td style="padding:3px 6px;">{r_wl}</td><td style="padding:3px 6px;">{r_streak}日</td>
+                <td style="padding:3px 6px;">{b_disp}</td><td style="padding:3px 6px;">{r_missing}</td>
+              </tr>""")
+                        html.append("""            </tbody></table>
+            <div style="font-size:13px;color:var(--ink-3);margin-top:var(--u);font-style:italic;">
+              删除线 = 观察周期已结束 · ● 上方卡片 = 当天活跃
+            </div>
+          </div>
+        </details>""")
+        except Exception:
+            pass
+
+        html.append('  </section>')
+
+    # ── v1.1 行业大类联动 ──
+    if group_linkage:
+        html.append('  <section class="section">')
+        html.append('    <div class="sec-head">')
+        html.append('      <span class="sec-num">§ I¾</span>')
+        html.append('      <span class="sec-title" style="font-size:20px;">大类联动</span>')
+        html.append('      <span class="sec-tag">仅供观察</span>')
+        html.append('    </div>')
+        for gl in group_linkage:
+            grp_name = gl["group"]
+            count = gl["count"]
+            members = gl["members"]
+            members_str = " · ".join(members)
+            html.append(f"""
+        <div style="padding:var(--u2) var(--u3);margin-bottom:var(--u2);border-left:2px solid var(--warn);background:var(--bg-2);">
+          <div style="font-family:var(--font-display);font-weight:700;font-size:15px;color:var(--ink);margin-bottom:var(--u);">
+            {grp_name}
+            <span style="font-weight:400;font-size:15px;color:var(--ink-3);"> · {count} 个细分行业进入雷达</span>
+          </div>
+          <div style="font-size:15px;color:var(--ink-2);">{members_str}</div>
+          <div style="font-size:14px;color:var(--ink-3);margin-top:var(--u);font-style:italic;">
+            同大类多细分同步改善 · 正式信号仍按单行业独立判断
+          </div>
+        </div>""")
+        html.append('  </section>')
+
+    # ── v1.1 近期案例跟踪 ──
+    if recent_cases is not None and not recent_cases.empty:
+        html.append('  <section class="section">')
+        html.append('    <div class="sec-head">')
+        html.append('      <span class="sec-num">§ I+</span>')
+        html.append('      <span class="sec-title" style="font-size:20px;">近期案例</span>')
+        html.append('    </div>')
+        for _, case in recent_cases.iterrows():
+            ind = case.get("industry", "?")
+            fwd5 = case.get("forward_ret_5d", "")
+            fwd10 = case.get("forward_ret_10d", "")
+            status = case.get("current_status", "")
+            trigger = case.get("formal_triggered", "")
+
+            # ── 安全格式化 nan/空 ──
+            def _sf(val):
+                if val in ("", None, "nan", "None"):
+                    return None
+                try:
+                    v = float(val)
+                    if v != v:  # NaN check
+                        return None
+                    return f"{v*100:+.1f}%"
+                except (ValueError, TypeError):
+                    return None
+
+            r5 = _sf(fwd5)
+            r10 = _sf(fwd10)
+            ret5_str = f"雷达后 5 日 {r5}" if r5 else "等待 5 日结果"
+            ret10_str = f"10 日 {r10}" if r10 else ""
+            triggered = "已触发" if trigger == "1" else ""
+
+            html.append(f"""
+        <div style="padding:var(--u2) var(--u3);margin-bottom:var(--u2);border-left:2px solid var(--accent-2);">
+          <span style="font-family:var(--font-display);font-weight:700;font-size:14px;">{ind}</span>
+          <span style="font-size:15px;color:var(--ink-2);margin-left:var(--u2);">{ret5_str}{f' · {ret10_str}' if ret10_str else ''}</span>
+          {f'<span style="font-size:13px;color:var(--accent-2);margin-left:var(--u);">{triggered}</span>' if triggered else ''}
+        </div>""")
         html.append('  </section>')
 
     # ===== 3. 持仓监控 =====
@@ -1093,7 +1402,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
 
     # ===== Footer（编辑风收尾） =====
     html.append('  <footer class="colophon">')
-    html.append('    <span>掘金信号 · 4 因子 + 4 进度桶 + 仓位 8%/12%</span>')
+    html.append('    <span>掘金信号 v1.1 · 4 因子 + 4 进度桶 + 仓位 8%/12%</span>')
     html.append(f'    <span class="stamp">SET IN FRAUNCES &amp; NOTO SERIF</span>')
     html.append(f'    <span>生成于 {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</span>')
     html.append('  </footer>')
@@ -1224,39 +1533,112 @@ def main():
         for pe in validation.get("position_errors", []):
             print(f"  ❌ {pe.get('target','?')} ({pe.get('target_type','?')}): {pe.get('error','')}")
 
-        # 阻断报告：不调用正常的 render_html/monitor_all_positions_v6
+        # 阻断报告：同时生成 HTML 和 Markdown
         y, m, d = requested_date.split("-")
+        from v0_6.scripts.render_markdown_report import render_blocked_report_md
         blocked_html = render_blocked_report(requested_date, signal_data_date, validation,
                                               pd.DataFrame(), [])
-        out_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
-        out_path.write_text(blocked_html, encoding="utf-8")
-        print(f"  ⚠ 阻断报告已生成（不含可执行买卖建议）: {out_path}")
-        print(f"\n⚠️ 数据未就绪，请先完成行情数据更新。")
+        blocked_md = render_blocked_report_md(requested_date, signal_data_date, validation)
+
+        html_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
+        md_path = DAILY_DIR / f"daily_v1_{requested_date}.md"
+        html_path.write_text(blocked_html, encoding="utf-8")
+        md_path.write_text(blocked_md, encoding="utf-8")
+        print(f"  ⚠ 阻断报告: {html_path}")
+        print(f"  ⚠ 阻断报告: {md_path}")
         return 2
 
+    from v0_6.core.version import VERSION, VERSION_LABEL
     date_note = f" (数据截至 {signal_data_date})" if signal_data_date != requested_date else ""
-    print(f"\n=== 掘金日报 V1.0 HTML | {requested_date}{date_note} ===\n")
+    print(f"\n=== {VERSION_LABEL} | {requested_date}{date_note} ===\n")
 
     if signal_data_date != requested_date:
         print(f"  信号数据截至 {signal_data_date}（请求日期 {requested_date} 非交易日或数据落后）")
 
     today_signals, all_signals, industry_daily = get_today_signals(signal_data_date)
 
-    # 信号雷达
+    # ── v1.1: 信号雷达 + 连续跟踪 + 强观察 ──
     radar_candidates = None
     try:
         radar_candidates = build_signal_radar(
             industry_daily, all_signals, signal_data_date, max_items=5,
         )
+        if radar_candidates:
+            from v0_6.core.observation_tracker import compute_radar_streak, reset_radar_for_triggered
+            radar_candidates = compute_radar_streak(radar_candidates, signal_data_date, industry_daily)
+            # 正式信号触发后清除雷达跟踪
+            if not today_signals.empty:
+                for _, sig in today_signals.iterrows():
+                    reset_radar_for_triggered(sig.get("industry", ""))
     except Exception as e:
         print(f"  ⚠ 信号雷达生成失败: {e}")
 
-    monitoring = monitor_all_positions_v6(requested_date)
+    monitoring = monitor_all_positions_v6(
+        today=requested_date,
+        signal_data_date=signal_data_date,
+        industry_daily=industry_daily,
+    )
 
-    html = render_html(requested_date, signal_data_date, today_signals, monitoring, radar_candidates)
-    out_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
-    out_path.write_text(html, encoding="utf-8")
-    print(f"  ✓ {out_path}")
+    # 主线结构 + 相对强度 增强
+    try:
+        from v0_6.core.mainline_monitor import (
+            classify_mainline_structure, compute_relative_strength, compute_trend_continuation,
+        )
+        for m in monitoring:
+            si = m.get("source_industry")
+            if si and not industry_daily.empty:
+                m["mainline_structure"] = classify_mainline_structure(industry_daily, si, signal_data_date)
+                m["relative_strength"] = compute_relative_strength(industry_daily, si, signal_data_date)
+                m["trend_continuation"] = compute_trend_continuation(
+                    industry_daily, si, signal_data_date,
+                    signal_date=m.get("source_signal_date"),
+                )
+    except Exception as e:
+        print(f"  ⚠ 主线结构分析失败: {e}")
+
+    # ── v1.1: 行业大类联动 ──
+    group_linkage = []
+    try:
+        from v0_6.core.industry_groups import check_group_linkage
+        radar_industries = [c["industry"] for c in (radar_candidates or [])]
+        signal_industries = today_signals["industry"].tolist() if not today_signals.empty else []
+        group_linkage = check_group_linkage(radar_industries + signal_industries)
+    except Exception as e:
+        print(f"  ⚠ 大类联动检测失败: {e}")
+
+    # ── v1.1: 案例账本更新 ──
+    signal_cases = None
+    try:
+        from v0_6.core.observation_tracker import update_signal_cases, get_recent_cases
+        signal_cases = update_signal_cases(
+            radar_candidates or [], today_signals, industry_daily, signal_data_date,
+        )
+        recent_cases = get_recent_cases(3)
+    except Exception as e:
+        print(f"  ⚠ 案例账本更新失败: {e}")
+        recent_cases = None
+
+    html = render_html(requested_date, signal_data_date, today_signals, monitoring,
+                       radar_candidates, group_linkage=group_linkage, recent_cases=recent_cases)
+    html_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
+    html_path.write_text(html, encoding="utf-8")
+
+    # Markdown 研究版
+    from v0_6.scripts.render_markdown_report import render_markdown_report
+    md = render_markdown_report(
+        requested_date=requested_date,
+        signal_data_date=signal_data_date,
+        today_signals=today_signals,
+        monitoring=monitoring,
+        radar_candidates=radar_candidates,
+        group_linkage=group_linkage,
+        recent_cases=recent_cases,
+    )
+    md_path = DAILY_DIR / f"daily_v1_{requested_date}.md"
+    md_path.write_text(md, encoding="utf-8")
+
+    print(f"  ✓ HTML 快速版: {html_path}")
+    print(f"  ✓ Markdown 研究版: {md_path}")
 
     # 同时重建档案索引
     try:
@@ -1265,7 +1647,26 @@ def main():
     except Exception as e:
         print(f"  ⚠️ 档案索引更新失败: {e}")
 
-    print(f"\n🎉 完成！浏览器打开：file:///{out_path.as_posix()}")
+    from v0_6.core.version import VERSION_LABEL as _VL
+    print(f"\n🎉 {_VL} 日报完成！")
+    print(f"  HTML 快速版：file:///{html_path.as_posix()}")
+    print(f"  Markdown 研究版：{md_path}")
+
+    # ── v1.1: 来源行业补录提示 ──
+    missing_si = [p.get("target", "?") for p in open_positions
+                  if p.get("source_industry_status") in ("MISSING", None)]
+    if missing_si:
+        print(f"\n⚠ 来源行业待补录：")
+        for t in missing_si:
+            print(f"  - {t}")
+        print()
+        print("这不是每日任务，只需对历史缺失持仓补录一次。")
+        print("补录后，主线结构、相对强度、趋势延续和退潮监控会自动生效。")
+        print()
+        print("执行：")
+        print("python v0_6/scripts/backfill_position_source.py")
+    else:
+        print("\n✓ 所有开放持仓均已记录来源行业")
     return 0
 
 

@@ -8,6 +8,7 @@ v6 实盘规则 — 进度分桶 + 掘金信号
 
 进度定义：progress = (entry_price - 60d_low) / 60d_low
 """
+from .config import RULES
 
 # 掘金信号 4 因子（原 B 方案）
 SIGNAL_FACTORS = {
@@ -20,7 +21,9 @@ SIGNAL_FACTORS = {
         {"id": 4, "name": "真从弱转强", "operator": "yes", "description": "过去 60 日多数 < 35% 且最近 1 日 ≥ 35%"},
     ],
     "filters": {
-        "industry_min_stocks": 20,
+        # 实际过滤由 signal_b.compute_industry_daily_metrics 依据下方 rules.json 阈值执行；
+        # 此处仅作单一真相源声明，便于统一调整
+        "industry_min_stocks": RULES["signal"]["min_stocks_per_industry"],
         "cooldown_days": 60,
     },
 }

@@ -563,6 +563,12 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                             stop_price=stop_price,
                             take_profit_price=tp_price,
                             notes=f"replay #{order.get('signal_date', '')}→{current_date}",
+                            # v6.2: 来源行业
+                            source_industry=order.get("source_industry"),
+                            source_signal_date=order.get("source_signal_date"),
+                            source_signal_priority=order.get("source_signal_priority"),
+                            source_signal_type=order.get("source_signal_type"),
+                            source_signal_ret20=order.get("source_signal_ret20"),
                         )
                         fills.append({
                             "signal_date": order.get("signal_date", ""),
@@ -590,7 +596,6 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                 elif action == "REDUCE":
                     from v0_6.core import add_trade, get_position_net
                     try:
-                        # REDUCE 的 realized_pnl = (REDUCE 价 - 平均成本) × REDUCE 股数
                         net_r = get_position_net(target)
                         red_avg_cost = net_r.get("avg_cost", 0) if net_r else 0
                         red_realized = (price - red_avg_cost) * shares if red_avg_cost > 0 else 0
@@ -606,10 +611,15 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                             trade_date=current_date,
                             notes=f"replay reduce #{order.get('signal_date', '')}",
                         )
-                        # 标记 reduced_1_3
+                        # v6.2: 区分减仓原因
+                        reason = order.get("action_reason", "")
                         from v0_6.core.config import DB_PATH as _DB
                         con_r = sqlite3.connect(str(_DB))
                         con_r.execute("UPDATE live_trades SET reduced_1_3 = 1 WHERE target = ?", (target,))
+                        if reason == "TAKE_PROFIT" or reason == "TAKE_PROFIT_AND_RETREAT":
+                            con_r.execute("UPDATE live_trades SET take_profit_reduced_1_3 = 1 WHERE target=? AND action IN ('BUY','ADD') AND closed=0", (target,))
+                        if reason == "CONFIRMED_RETREAT" or reason == "TAKE_PROFIT_AND_RETREAT":
+                            con_r.execute("UPDATE live_trades SET retreat_reduced_1_3 = 1 WHERE target=? AND action IN ('BUY','ADD') AND closed=0", (target,))
                         con_r.commit()
                         con_r.close()
                         fills.append({
@@ -620,6 +630,10 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                             "price": price, "amount": round(amount, 2),
                             "realized_pnl": round(red_realized, 2),
                             "status": "FILLED",
+                            "action_reason": reason,
+                            "source_industry": order.get("source_industry", ""),
+                            "retreat_score": order.get("retreat_score", 0),
+                            "retreat_stage": order.get("retreat_stage", ""),
                         })
                         order["status"] = "FILLED"
                     except Exception as e:
@@ -690,11 +704,13 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
 
         # 第四步：生成当天信号
         signals_today = None
+        industry_daily = pd.DataFrame()
         if validation["ok"]:
             sd_date = get_signal_data_date(current_date)
             if sd_date:
                 # P0-1 修复：必须严格过滤到当前交易日，避免 T/T+1/T+2 重复下单
-                signals_today, _, _ = get_today_signals(sd_date)
+                result_signals = get_today_signals(sd_date)
+                signals_today, _, industry_daily = result_signals
                 if signals_today is not None and not signals_today.empty:
                     sd_dt = pd.to_datetime(sd_date)
                     cur_dt = pd.to_datetime(current_date)
@@ -737,6 +753,12 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                                 "suggested_amount": round(suggested_amount, 2),
                                 "suggested_position_pct": pos_pct,
                                 "status": "PENDING",
+                                # v6.2: 来源行业（用于退潮监控）
+                                "source_industry": sig.get("industry", ""),
+                                "source_signal_date": current_date,
+                                "source_signal_priority": sig.get("priority", ""),
+                                "source_signal_type": sig.get("signal_type", "STABILIZING_B"),
+                                "source_signal_ret20": sig.get("avg_ret20_at_signal", 0),
                             }
                             ctx.pending_orders.append(order)
                             ctx.orders.append(order)
@@ -744,7 +766,11 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
         # 第五步：持仓监控
         monitoring_results = []
         if validation["ok"]:
-            monitoring_results = monitor_all_positions_v6(current_date)
+            monitoring_results = monitor_all_positions_v6(
+                today=current_date,
+                signal_data_date=sd_date,
+                industry_daily=industry_daily,
+            )
             for mr in monitoring_results:
                 action = mr.get("action", "HOLD")
                 day_rec["monitoring_actions"].append({
@@ -762,7 +788,7 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                     "priority": mr.get("priority", ""),
                 })
 
-                # REDUCE_1_3 → 下一交易日指令
+                # REDUCE_1_3 → 下一交易日指令（止盈减仓）
                 if action == "REDUCE_1_3":
                     target = mr.get("target", "")
                     ttype = mr.get("target_type", "")
@@ -777,6 +803,31 @@ def run_replay(ctx: ReplayContext, max_days: int | None = None) -> dict:
                             "action": "REDUCE",
                             "shares": reduce_shares,
                             "status": "PENDING",
+                            "action_reason": mr.get("action_reason", "TAKE_PROFIT"),
+                        }
+                        ctx.pending_orders.append(order)
+                        ctx.orders.append(order)
+
+                # RETREAT_REDUCE_1_3 → 退潮减仓 1/3（T+1 执行）
+                if action == "RETREAT_REDUCE_1_3":
+                    target = mr.get("target", "")
+                    ttype = mr.get("target_type", "")
+                    net = get_position_net(target)
+                    reduce_shares = round(net["net_shares"] / 3, 2)
+                    if reduce_shares > 0:
+                        order = {
+                            "signal_date": current_date,
+                            "target": target,
+                            "target_type": ttype,
+                            "target_name": mr.get("target_name", ""),
+                            "action": "REDUCE",
+                            "shares": reduce_shares,
+                            "status": "PENDING",
+                            "action_reason": "CONFIRMED_RETREAT",
+                            "source_industry": mr.get("source_industry", ""),
+                            "retreat_score": mr.get("retreat_score", 0),
+                            "retreat_stage": mr.get("retreat_stage", ""),
+                            "retreat_action": mr.get("retreat_action", ""),
                         }
                         ctx.pending_orders.append(order)
                         ctx.orders.append(order)
