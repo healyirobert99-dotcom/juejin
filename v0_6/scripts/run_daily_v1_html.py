@@ -740,7 +740,7 @@ def fmt_price(x):
 
 # ============== 持仓卡片渲染 ==============
 
-def render_position_card(r: dict) -> str:
+def render_position_card(r: dict, signal_id_map: dict | None = None) -> str:
     """单笔持仓——编辑风双栏（行业名 + 收益率；下方落建议）
 
     异常持仓（error）显示最小异常卡片，不显示价格/盈亏/止损止盈。
@@ -861,29 +861,54 @@ def render_position_card(r: dict) -> str:
     <span class="led-inline">成本 {fmt_price(entry_price)} · 现价 {fmt_price(current_price)} · 止损 {fmt_price(stop_price)}</span>{ind_status_html}
   </div>
   <div class="led-advice {action}">{advice}</div>
-{_render_analysis_details(r, source_ind)}
+{_render_analysis_details(r, source_ind, signal_id_map)}
 </article>
 """
 
 
-def _render_analysis_details(r: dict, source_ind: str | None) -> str:
-    """持仓分析详情——直接平铺展示，不折叠"""
+def _render_analysis_details(r: dict, source_ind: str | None, signal_id_map: dict | None = None) -> str:
+    """持仓分析详情——直接平铺展示，不折叠
+
+    v1.2：字段重命名（主线结构→内部参与状态）+ 新增趋势状态/风险状态/来源信号。
+    仅调整文字表达，不修改任何判断逻辑。
+    """
     if not source_ind:
         return ""
 
     parts = []
+    signal_id_map = signal_id_map or {}
 
-    # ── 主线结构 ──
+    # ── 内部参与状态（原：主线结构，仅改标签） ──
     ms = r.get("mainline_structure") or {}
     if ms:
         parts.append(f"""  <div class="analysis-card">
-    <div class="ac-label">主线结构</div>
+    <div class="ac-label">内部参与状态</div>
     <div class="ac-value"><b>{ms.get('structure_label', '?')}</b> — {ms.get('summary', '—')}</div>
+  </div>""")
+
+    # ── 趋势状态（v1.2 新增，复用已有 trend_continuation） ──
+    tc = r.get("trend_continuation") or {}
+    tc_label = tc.get("label") if tc else "—"
+    parts.append(f"""  <div class="analysis-card">
+    <div class="ac-label">趋势状态</div>
+    <div class="ac-value">{tc_label}</div>
+  </div>""")
+
+    # ── 风险状态（v1.2 新增，由 retreat_action 映射） ──
+    ret_action = r.get("retreat_action", "NORMAL")
+    risk_map = {
+        "NORMAL": "无需处理",
+        "WARNING": "需观察",
+        "CONFIRMED_RETREAT": "建议减仓",
+    }
+    risk_label = risk_map.get(ret_action, "无需处理")
+    parts.append(f"""  <div class="analysis-card">
+    <div class="ac-label">风险状态</div>
+    <div class="ac-value">{risk_label}</div>
   </div>""")
 
     # ── 退潮 ──
     ret_score = r.get("retreat_score", 0)
-    ret_action = r.get("retreat_action", "NORMAL")
     if ret_action == "CONFIRMED_RETREAT":
         retreat_line = f"<b style='color:var(--accent);'>确认退潮（{ret_score:.0f}分）— 建议减仓 1/3</b>"
     elif ret_action != "NORMAL":
@@ -894,6 +919,14 @@ def _render_analysis_details(r: dict, source_ind: str | None) -> str:
     parts.append(f"""  <div class="analysis-card">
     <div class="ac-label">退潮信号</div>
     <div class="ac-value">{retreat_line}</div>
+  </div>""")
+
+    # ── 来源信号（v1.2：回溯信号档案 signal_id） ──
+    sid = signal_id_map.get(source_ind, "")
+    if sid:
+        parts.append(f"""  <div class="analysis-card">
+    <div class="ac-label">来源信号</div>
+    <div class="ac-value" style="font-family:var(--font-mono,monospace);">{sid}</div>
   </div>""")
 
     # ── 风控 ──
@@ -940,7 +973,9 @@ def _e(condition: bool, label: str) -> str:
 
 def render_html(requested_date: str, signal_data_date: str, today_signals: pd.DataFrame,
                 monitoring: list, radar_candidates: list | None = None,
-                group_linkage: list | None = None, recent_cases: pd.DataFrame | None = None) -> str:
+                group_linkage: list | None = None, recent_cases: pd.DataFrame | None = None,
+                ledger_df: pd.DataFrame | None = None) -> str:
+    from v0_6.core.version import STRATEGY_VERSION, RULE_VERSION, REPORT_VERSION
     sd_dt = pd.to_datetime(signal_data_date)
     today_only = today_signals[today_signals["signal_date"] == sd_dt]
     n_today = len(today_only)
@@ -951,6 +986,14 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
     n_red_retreat = sum(1 for r in monitoring if r.get("action") == "RETREAT_REDUCE_1_3")
     n_red_tp = sum(1 for r in monitoring if r.get("action") == "REDUCE_1_3" and r.get("action_reason") != "TAKE_PROFIT_AND_RETREAT")
     n_positions = len(monitoring)
+
+    # ── v1.2: 信号生命周期账本（信号档案 / 信号验证） ──
+    recent_ledger = ledger_df.tail(5) if (ledger_df is not None and not ledger_df.empty) else None
+    signal_id_map: dict = {}
+    if ledger_df is not None and not ledger_df.empty:
+        for _, lr in ledger_df.iterrows():
+            if str(lr.get("current_status", "")) in ("RADAR", "TRIGGERED", "HOLD"):
+                signal_id_map.setdefault(str(lr.get("industry", "")), str(lr.get("signal_id", "")))
 
     # 解析日期为刊头需要的形式
     y, m, d = requested_date.split("-")
@@ -969,7 +1012,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>掘金日报 · {requested_date}{empty_mark} | Zhuxian Catch v1.1</title>
+<title>掘金日报 · {requested_date}{empty_mark} | Report v1.2</title>
 {HTML_STYLE}
 </head>
 <body>
@@ -994,6 +1037,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
     </div>
   </div>
 """]
+    html.append(f'  <div style="text-align:right;font-size:13px;color:var(--ink-3);letter-spacing:0.05em;margin:var(--u2) 0 var(--u3);">策略 <b>{STRATEGY_VERSION}</b> · 规则 <b>{RULE_VERSION}</b> · 日报 <b>{REPORT_VERSION}</b></div>')
 
     # ===== 重要告警（红色横幅，只在有红色告警时出现） =====
     if n_red > 0:
@@ -1083,6 +1127,10 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
             <span class="etf-tag light">⚠ 无 ETF</span>
             <span class="etf-name">{etf_r['note']}</span>
           </div>"""
+            # ── v1.2: ETF 可执行性 ──
+            trade_available = "YES" if etf_r.get("best") else "NO"
+            trade_note = "可执行" if trade_available == "YES" else "不可执行"
+            trade_reason = "" if trade_available == "YES" else " · 原因：ETF映射缺失"
             # 进度桶计算
             bucket_html = ""
             if etf_r.get("best") and etf_r["best"].get("code"):
@@ -1116,7 +1164,8 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
         </div>
         <div class="dispatch-meta">
           建仓 <b>{pos_pct*100:.0f}%</b><br>
-          宽度 <b>{sig["breadth_at_signal"]*100:.0f}%</b> · 量比 <b>{sig["vol_ratio_at_signal"]:.2f}</b>{bucket_html}
+          宽度 <b>{sig["breadth_at_signal"]*100:.0f}%</b> · 量比 <b>{sig["vol_ratio_at_signal"]:.2f}</b>{bucket_html}<br>
+          交易状态 <b>{trade_note}</b>{trade_reason}
         </div>
       </article>""")
         html.append('    </div>')
@@ -1348,6 +1397,71 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
         </div>""")
         html.append('  </section>')
 
+    # ── v1.2: 信号档案（生命周期） ──
+    if recent_ledger is not None and not recent_ledger.empty:
+        html.append('  <section class="section">')
+        html.append('    <div class="sec-head">')
+        html.append('      <span class="sec-num">§ I*</span>')
+        html.append('      <span class="sec-title" style="font-size:20px;">信号档案</span>')
+        html.append('      <span class="sec-tag">Signal Ledger</span>')
+        html.append('    </div>')
+        for _, lr in recent_ledger.iterrows():
+            sid = str(lr.get("signal_id", ""))
+            ind = str(lr.get("industry", "?"))
+            fod = str(lr.get("first_observation_date", ""))
+            phase = str(lr.get("current_phase", "D0"))
+            status = str(lr.get("current_status", ""))
+            status_color = {
+                "RADAR": "var(--ink-3)", "TRIGGERED": "var(--accent-2)",
+                "HOLD": "var(--warn)", "CLOSED": "var(--accent)",
+            }.get(status, "var(--ink)")
+            html.append(f"""
+        <div style="padding:var(--u2) var(--u3);margin-bottom:var(--u2);border-left:3px solid var(--accent-2);background:var(--bg-2);">
+          <div style="font-family:var(--font-mono,monospace);font-weight:700;font-size:14px;color:var(--ink);margin-bottom:var(--u);">{sid}</div>
+          <div style="font-size:15px;color:var(--ink-2);line-height:1.7;">
+            <span style="display:inline-block;width:5em;color:var(--ink-3);">行业</span>{ind}<br>
+            <span style="display:inline-block;width:5em;color:var(--ink-3);">首次观察</span>{fod}<br>
+            <span style="display:inline-block;width:5em;color:var(--ink-3);">当前阶段</span>{phase}<br>
+            <span style="display:inline-block;width:5em;color:var(--ink-3);">当前状态</span><b style="color:{status_color};">{status}</b>
+          </div>
+        </div>""")
+        html.append('  </section>')
+
+    # ── v1.2: 信号验证（结果追踪 D+1/D+5/D+20） ──
+    if recent_ledger is not None and not recent_ledger.empty:
+        html.append('  <section class="section">')
+        html.append('    <div class="sec-head">')
+        html.append('      <span class="sec-num">§ I*</span>')
+        html.append('      <span class="sec-title" style="font-size:20px;">信号验证</span>')
+        html.append('      <span class="sec-tag">Result Tracking</span>')
+        html.append('    </div>')
+        for _, lr in recent_ledger.iterrows():
+            sid = str(lr.get("signal_id", ""))
+            status = str(lr.get("current_status", ""))
+            html.append(f"""
+        <div style="padding:var(--u2) var(--u3);margin-bottom:var(--u2);border-left:3px solid var(--warn);background:var(--bg-2);">
+          <div style="font-family:var(--font-mono,monospace);font-size:13px;color:var(--ink-2);margin-bottom:var(--u);">{sid}</div>""")
+            for p, label in ((1, "D+1"), (5, "D+5"), (20, "D+20")):
+                ret = lr.get(f"d{p}_ret", "")
+                br = lr.get(f"d{p}_breadth", "")
+                if status == "RADAR":
+                    ret_disp, br_disp = "等待观察", "—"
+                elif ret in ("", None):
+                    ret_disp, br_disp = "未到观察日期", "—"
+                else:
+                    try:
+                        ret_disp = f"{float(ret)*100:+.1f}%"
+                    except (ValueError, TypeError):
+                        ret_disp = "—"
+                    try:
+                        br_disp = f"{float(br)*100:.1f}%"
+                    except (ValueError, TypeError):
+                        br_disp = "—"
+                html.append(f"""
+          <div style="font-size:15px;color:var(--ink-2);margin-bottom:4px;"><b style="display:inline-block;width:3.5em;color:var(--ink-3);">{label}</b> 收益 {ret_disp} · 宽度 {br_disp}</div>""")
+            html.append('        </div>')
+        html.append('  </section>')
+
     # ===== 3. 持仓监控 =====
     html.append('  <section class="section">')
     sec_subtitle = f"🔴 {n_red} 个需立即操作" if n_red > 0 else "按优先级排序 · 风险由上至下"
@@ -1368,7 +1482,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
         )
         html.append('    <div class="ledgers">')
         for r in sorted_monitoring:
-            html.append(render_position_card(r))
+            html.append(render_position_card(r, signal_id_map))
         html.append('    </div>')
     html.append('  </section>')
 
@@ -1402,7 +1516,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
 
     # ===== Footer（编辑风收尾） =====
     html.append('  <footer class="colophon">')
-    html.append('    <span>掘金信号 v1.1 · 4 因子 + 4 进度桶 + 仓位 8%/12%</span>')
+    html.append(f'    <span>策略 {STRATEGY_VERSION} · 规则 {RULE_VERSION} · 日报 {REPORT_VERSION} · 4 因子 + 4 进度桶 + 仓位 8%/12%</span>')
     html.append(f'    <span class="stamp">SET IN FRAUNCES &amp; NOTO SERIF</span>')
     html.append(f'    <span>生成于 {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</span>')
     html.append('  </footer>')
@@ -1427,7 +1541,7 @@ def render_blocked_report(requested_date: str, signal_data_date: str, validation
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>⚠ 数据阻断 · {requested_date} | Zhuxian Catch v0.6</title>
+<title>⚠ 数据阻断 · {requested_date} | Report v1.2</title>
 {HTML_STYLE}
 </head>
 <body>
@@ -1618,8 +1732,21 @@ def main():
         print(f"  ⚠ 案例账本更新失败: {e}")
         recent_cases = None
 
+    # ── v1.2: 信号生命周期账本（信号档案 / 信号验证） ──
+    ledger_df = None
+    try:
+        from v0_6.core.signal_ledger import update_signal_ledger
+        ledger_df = update_signal_ledger(
+            radar_candidates or [], today_signals, industry_daily, signal_data_date,
+            open_positions=open_positions,
+        )
+    except Exception as e:
+        print(f"  ⚠ 信号生命周期账本更新失败: {e}")
+        ledger_df = None
+
     html = render_html(requested_date, signal_data_date, today_signals, monitoring,
-                       radar_candidates, group_linkage=group_linkage, recent_cases=recent_cases)
+                       radar_candidates, group_linkage=group_linkage, recent_cases=recent_cases,
+                       ledger_df=ledger_df)
     html_path = DAILY_DIR / f"daily_v1_{requested_date}.html"
     html_path.write_text(html, encoding="utf-8")
 
@@ -1633,6 +1760,7 @@ def main():
         radar_candidates=radar_candidates,
         group_linkage=group_linkage,
         recent_cases=recent_cases,
+        ledger_df=ledger_df,
     )
     md_path = DAILY_DIR / f"daily_v1_{requested_date}.md"
     md_path.write_text(md, encoding="utf-8")
