@@ -1,0 +1,2 @@
+case_id,industry,industry_group,formal_signal_date,formal_signal_priority,formal_triggered,current_status,close_date,close_reason,first_seen_date,last_seen_date,forward_ret_5d,forward_ret_10d,forward_ret_20d,max_return_20d,max_drawdown_20d,updated_at
+医疗保健__2026-07-10,医疗保健,医药,2026-07-10,FIRST,1,FORMAL_TRIGGERED,,,2026-07-10,2026-07-10,,,,,,2026-07-11 00:15:32

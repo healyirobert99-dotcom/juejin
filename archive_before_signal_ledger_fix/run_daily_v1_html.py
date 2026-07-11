@@ -1415,17 +1415,6 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
                 "RADAR": "var(--ink-3)", "TRIGGERED": "var(--accent-2)",
                 "HOLD": "var(--warn)", "CLOSED": "var(--accent)",
             }.get(status, "var(--ink)")
-            # v1.2.1: ETF 状态三态显示
-            match_status = str(lr.get("etf_match_status", ""))
-            if match_status == "ERROR":
-                trade_disp = "匹配异常"
-            elif match_status == "MATCHED":
-                trade_disp = "可执行"
-            elif match_status == "NOT_FOUND":
-                trade_disp = "不可执行"
-            else:
-                ta = str(lr.get("trade_available", ""))
-                trade_disp = "可执行" if ta == "YES" else ("不可执行" if ta == "NO" else ta)
             html.append(f"""
         <div style="padding:var(--u2) var(--u3);margin-bottom:var(--u2);border-left:3px solid var(--accent-2);background:var(--bg-2);">
           <div style="font-family:var(--font-mono,monospace);font-weight:700;font-size:14px;color:var(--ink);margin-bottom:var(--u);">{sid}</div>
@@ -1433,8 +1422,7 @@ def render_html(requested_date: str, signal_data_date: str, today_signals: pd.Da
             <span style="display:inline-block;width:5em;color:var(--ink-3);">行业</span>{ind}<br>
             <span style="display:inline-block;width:5em;color:var(--ink-3);">首次观察</span>{fod}<br>
             <span style="display:inline-block;width:5em;color:var(--ink-3);">当前阶段</span>{phase}<br>
-            <span style="display:inline-block;width:5em;color:var(--ink-3);">当前状态</span><b style="color:{status_color};">{status}</b><br>
-            <span style="display:inline-block;width:5em;color:var(--ink-3);">交易状态</span>{trade_disp}
+            <span style="display:inline-block;width:5em;color:var(--ink-3);">当前状态</span><b style="color:{status_color};">{status}</b>
           </div>
         </div>""")
         html.append('  </section>')
