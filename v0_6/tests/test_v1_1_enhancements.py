@@ -86,7 +86,7 @@ def test_radar_streak_increments_on_consecutive_days(monkeypatch):
     from v0_6.core.observation_tracker import compute_radar_streak
     import v0_6.core.config as cfg
     tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(cfg, "DATA_DIR", tmp)
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp / "data")
 
     ind_daily = _make_industry_daily(days=10)
     dates = sorted(ind_daily["trade_date"].unique().tolist())
@@ -152,7 +152,7 @@ def test_signal_cases_creates_once(monkeypatch):
     from v0_6.core.observation_tracker import update_signal_cases
     import v0_6.core.config as cfg
     tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(cfg, "DATA_DIR", tmp)
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp / "data")
     (tmp / "reports" / "observation").mkdir(parents=True, exist_ok=True)
 
     industry_daily = _make_industry_daily()
@@ -171,7 +171,7 @@ def test_case_forward_returns_not_set_before_due(monkeypatch):
     from v0_6.core.observation_tracker import update_signal_cases
     import v0_6.core.config as cfg
     tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(cfg, "DATA_DIR", tmp)
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp / "data")
     (tmp / "reports" / "observation").mkdir(parents=True, exist_ok=True)
 
     industry_daily = _make_industry_daily(days=3)
