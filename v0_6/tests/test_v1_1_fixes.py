@@ -46,7 +46,7 @@ def test_radar_state_csv_persistence(monkeypatch):
     )
     import v0_6.core.config as cfg
     tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(cfg, "DATA_DIR", tmp)
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp / "data")
 
     ind_daily = _make_industry_daily(days=10)
     dates = sorted(ind_daily["trade_date"].unique().tolist())
@@ -74,7 +74,7 @@ def test_consecutive_3_days_only_one_case(monkeypatch):
     )
     import v0_6.core.config as cfg
     tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(cfg, "DATA_DIR", tmp)
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp / "data")
 
     ind_daily = _make_industry_daily(days=10)
     dates = sorted(ind_daily["trade_date"].unique().tolist())
@@ -100,7 +100,7 @@ def test_streak_reset_creates_new_case(monkeypatch):
     )
     import v0_6.core.config as cfg
     tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(cfg, "DATA_DIR", tmp)
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp / "data")
 
     ind_daily = _make_industry_daily(days=10)
     dates = sorted(ind_daily["trade_date"].unique().tolist())
@@ -137,7 +137,7 @@ def test_only_today_signals_update_formal_date(monkeypatch):
     )
     import v0_6.core.config as cfg
     tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(cfg, "DATA_DIR", tmp)
+    monkeypatch.setattr(cfg, "DATA_DIR", tmp / "data")
 
     ind_daily = _make_industry_daily(days=10)
     dates = sorted(ind_daily["trade_date"].unique().tolist())

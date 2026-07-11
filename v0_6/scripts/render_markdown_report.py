@@ -10,6 +10,8 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
+from v0_6.core.version import STRATEGY_VERSION, RULE_VERSION, REPORT_VERSION
+
 
 def render_markdown_report(
     requested_date: str = None,
@@ -21,6 +23,7 @@ def render_markdown_report(
     open_positions: list = None,
     group_linkage: list = None,
     recent_cases = None,
+    ledger_df = None,
 ) -> str:
     """生成 Markdown 研究版日报"""
 
@@ -42,7 +45,8 @@ def render_markdown_report(
     lines.append(f"- 报告日期：{requested_date}")
     lines.append(f"- 行情数据截至：{signal_data_date}")
     lines.append(f"- 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    lines.append(f"- 系统版本：掘金信号 v1.1")
+    lines.append(f"- 系统版本：{REPORT_VERSION}")
+    lines.append(f"- 版本口径：策略 {STRATEGY_VERSION} · 规则 {RULE_VERSION} · 日报 {REPORT_VERSION}")
     if validation:
         lines.append(f"- 数据状态：{'正常' if validation.get('ok') else '异常'}")
     lines.append("")
@@ -185,26 +189,69 @@ def render_markdown_report(
             lines.append(f"| {ind} | {frd} | {fts} | {f5} | {f10} | {f20} | {mr} | {dd} |")
         lines.append("")
 
+    # ── v1.2: 信号档案（生命周期） ──
+    if ledger_df is not None and not ledger_df.empty:
+        lines.append("## 三⅔、信号档案（生命周期）")
+        lines.append("")
+        lines.append("| signal_id | 行业 | 首次观察 | 当前阶段 | 当前状态 | 交易状态 |")
+        lines.append("|---|---|---|---|---|---|")
+        for _, lr in ledger_df.tail(5).iterrows():
+            sid = lr.get("signal_id", "")
+            ind = lr.get("industry", "?")
+            fod = lr.get("first_observation_date", "")
+            phase = lr.get("current_phase", "D0")
+            status = lr.get("current_status", "")
+            ta = lr.get("trade_available", "")
+            lines.append(f"| `{sid}` | {ind} | {fod} | {phase} | {status} | {ta} |")
+        lines.append("")
+
+    # ── v1.2: 信号验证（结果追踪 D+1/D+5/D+20） ──
+    if ledger_df is not None and not ledger_df.empty:
+        lines.append("## 三¾、信号验证（结果追踪）")
+        lines.append("")
+        for _, lr in ledger_df.tail(5).iterrows():
+            sid = lr.get("signal_id", "")
+            status = str(lr.get("current_status", ""))
+            lines.append(f"### `{sid}` · {status}")
+            lines.append("")
+            for p, label in ((1, "D+1"), (5, "D+5"), (20, "D+20")):
+                ret = lr.get(f"d{p}_ret", "")
+                br = lr.get(f"d{p}_breadth", "")
+                if status == "RADAR":
+                    ret_disp, br_disp = "等待观察", "—"
+                elif ret in ("", None):
+                    ret_disp, br_disp = "未到观察日期", "—"
+                else:
+                    try:
+                        ret_disp = f"{float(ret)*100:+.1f}%"
+                    except (ValueError, TypeError):
+                        ret_disp = "—"
+                    try:
+                        br_disp = f"{float(br)*100:.1f}%"
+                    except (ValueError, TypeError):
+                        br_disp = "—"
+                lines.append(f"- {label}：收益 {ret_disp} · 宽度 {br_disp}")
+            lines.append("")
+
     # ═══════ 四、持仓总览 ═══════
     lines.append("## 四、持仓总览")
     lines.append("")
     if monitoring:
-        lines.append("| 来源行业 | 标的 | 当前收益 | 主线结构 | 相对强度 | 退潮状态 | 最终操作 |")
+        lines.append("| 来源行业 | 标的 | 当前收益 | 内部参与状态 | 趋势状态 | 风险状态 | 最终操作 |")
         lines.append("|---|---:|---|---|---|---|")
         for r in monitoring:
             si = r.get("source_industry")
             si_display = si if si else "待补录"
             if si:
                 ms = (r.get("mainline_structure") or {}).get("structure_label", "暂不可判断")
-                rs = (r.get("relative_strength") or {}).get("strength_label", "暂不可判断")
-                ret_stage = r.get("retreat_stage") or "—"
+                tc = (r.get("trend_continuation") or {}).get("label", "暂不可判断")
+                risk = {"NORMAL": "无需处理", "WARNING": "需观察",
+                        "CONFIRMED_RETREAT": "建议减仓"}.get(r.get("retreat_action", "NORMAL"), "无需处理")
             else:
-                ms = "暂不可判断"
-                rs = "暂不可判断"
-                ret_stage = "暂不可判断"
+                ms, tc, risk = "暂不可判断", "暂不可判断", "暂不可判断"
             ret_pct = r.get("return_pct", 0) * 100
             action = r.get("action", "HOLD")
-            lines.append(f"| {si_display} | {r.get('target', '?')} | {ret_pct:+.1f}% | {ms} | {rs} | {ret_stage} | {action} |")
+            lines.append(f"| {si_display} | {r.get('target', '?')} | {ret_pct:+.1f}% | {ms} | {tc} | {risk} | {action} |")
         lines.append("")
     else:
         lines.append("当前无开放持仓。")
@@ -249,8 +296,14 @@ def render_markdown_report(
     lines.append("### 信号雷达")
     lines.append("- 满足四因子中的3项，尚未完全触发。仅观察，不构成买入。")
     lines.append("")
-    lines.append("### 主线结构")
-    lines.append("- 扩散上涨：广泛上涨；集中抱团：少数强股主导；内部转弱：参与度下降")
+    lines.append("### 内部参与状态")
+    lines.append("- 扩散上涨：广泛上涨；集中抱团：少数强股主导；内部转弱：参与度下降（仅文字表达，判断逻辑未变）")
+    lines.append("")
+    lines.append("### 趋势状态")
+    lines.append("- 由趋势延续评估得出：延续良好 / 延续一般 / 延续偏弱。仅辅助持有。")
+    lines.append("")
+    lines.append("### 风险状态")
+    lines.append("- 由退潮信号映射：无需处理（正常）/ 需观察（预警）/ 建议减仓（确认退潮）。")
     lines.append("")
     lines.append("### 相对强度")
     lines.append("- 行业横截面 20 日收益排名及变化趋势。仅辅助持有。")
