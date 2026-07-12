@@ -121,7 +121,7 @@ def test_d0_no_future_leak(tmp_data_dir):
 # 17.3 — 分阶段结果
 # ═══════════════════════════════════════════════════════════════════════
 
-def test_staged_outcome_d1():
+def test_staged_outcome_d1(tmp_data_dir):
     """as_of=D+1：只有 D+1 有结果。"""
     from v0_6.core.signal_ledger import update_signal_ledger
 
@@ -143,7 +143,7 @@ def test_staged_outcome_d1():
     assert row["d20_ret"] == "", f"D+20 ret should NOT be available at D+1"
 
 
-def test_staged_outcome_d5():
+def test_staged_outcome_d5(tmp_data_dir):
     """as_of=D+5：D+1 和 D+5 有结果。"""
     from v0_6.core.signal_ledger import update_signal_ledger
 
@@ -163,7 +163,7 @@ def test_staged_outcome_d5():
     assert row["d20_ret"] == "", f"D+20 should NOT be available at D+5, got {row['d20_ret']}"
 
 
-def test_staged_outcome_d20():
+def test_staged_outcome_d20(tmp_data_dir):
     """as_of=D+20：三项齐全。"""
     from v0_6.core.signal_ledger import update_signal_ledger
 
@@ -183,7 +183,7 @@ def test_staged_outcome_d20():
     assert row["d20_ret"] not in ("", None)
 
 
-def test_staged_outcome_d4():
+def test_staged_outcome_d4(tmp_data_dir):
     """as_of=D+4：只有 D+1。"""
     from v0_6.core.signal_ledger import update_signal_ledger
 
@@ -203,7 +203,7 @@ def test_staged_outcome_d4():
     assert row["d20_ret"] == ""
 
 
-def test_staged_outcome_d19():
+def test_staged_outcome_d19(tmp_data_dir):
     """as_of=D+19：无 D+20。"""
     from v0_6.core.signal_ledger import update_signal_ledger
 
