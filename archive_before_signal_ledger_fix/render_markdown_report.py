@@ -202,16 +202,7 @@ def render_markdown_report(
             phase = lr.get("current_phase", "D0")
             status = lr.get("current_status", "")
             ta = lr.get("trade_available", "")
-            match_status = str(lr.get("etf_match_status", ""))
-            if match_status == "ERROR":
-                ta_disp = "匹配异常"
-            elif match_status == "MATCHED":
-                ta_disp = "可执行"
-            elif match_status == "NOT_FOUND":
-                ta_disp = "不可执行"
-            else:
-                ta_disp = ta
-            lines.append(f"| `{sid}` | {ind} | {fod} | {phase} | {status} | {ta_disp} |")
+            lines.append(f"| `{sid}` | {ind} | {fod} | {phase} | {status} | {ta} |")
         lines.append("")
 
     # ── v1.2: 信号验证（结果追踪 D+1/D+5/D+20） ──
